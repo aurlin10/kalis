@@ -73,7 +73,7 @@ export const occurrences = (st, key) => {
     const i = monthDiff(t.debut, key);
     if (i >= 0 && i < n) {
       out.push({ ref: `tc:${t.id}:${key}`, label: `Cotisation · ${t.nom}`, kind: 'out', cat: 'tontine', amount: +t.cotisation, date: dateIn(key, t.jour) });
-      if (i === +t.position - 1) out.push({ ref: `tr:${t.id}:${key}`, label: `Cagnotte · ${t.nom}`, kind: 'in', cat: 'tontine', amount: +t.cotisation * n, date: dateIn(key, t.jour) });
+      if (i === +t.position - 1) { const gl = t.goalId && st.goals.find((g) => g.id === t.goalId); out.push({ ref: `tr:${t.id}:${key}`, label: `Cagnotte · ${t.nom}${gl ? ` → ${gl.nom}` : ''}`, kind: 'in', cat: 'tontine', amount: +t.cotisation * n, date: dateIn(key, t.jour), goalId: gl ? gl.id : undefined }); }
     }
   }
   for (const c of st.creances) {
@@ -104,7 +104,7 @@ export const balances = (st) => {
   const goals = {};
   for (const g of st.goals) goals[g.id] = +g.initial || 0;
   for (const t of st.transactions) {
-    if (t.kind === 'in') dispo += t.montant;
+    if (t.kind === 'in') { if (t.goalId && t.goalId in goals) goals[t.goalId] += t.montant; else dispo += t.montant; }
     else if (t.kind === 'out') dispo -= t.montant;
     else if (t.kind === 'save') { dispo -= t.montant; if (t.goalId in goals) goals[t.goalId] += t.montant; }
     else if (t.kind === 'withdraw') { dispo += t.montant; if (t.goalId in goals) goals[t.goalId] -= t.montant; }
@@ -131,6 +131,8 @@ export const projection = (st, today = new Date()) => {
     const charges = p.filter((x) => x.kind === 'out').reduce((s, x) => s + x.amount, 0);
     let epargne = 0;
     for (const x of p.filter((x) => x.kind === 'save')) { epargne += x.amount; if (x.goalId in g) g[x.goalId] += x.amount; }
+    // Entrées versées directement sur un objectif (ex. cagnotte de tontine liée)
+    for (const x of p.filter((x) => x.kind === 'in' && x.goalId && x.goalId in g)) { epargne += x.amount; g[x.goalId] += x.amount; }
     let vie = +st.budgetVie || 0;
     if (i === 0) { const rest = Math.max(0, vie - spentVie(st, key)); const left = daysIn(key) - today.getDate() + 1; vie = Math.min(rest, (vie * left) / daysIn(key)); }
     d = d + entrees - charges - epargne - vie;
