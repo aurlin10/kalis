@@ -6,13 +6,25 @@ import {
 import {
   AreaChart, Area, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine,
 } from 'recharts';
+import logoUrl from '../build/logo.svg';
 import {
   defaultState, balances, projection, pending, upcoming, occurrences, mkey, addMonths, mLabel, dLabel, fmt, fcfa, short, uid,
   CATS, CATS_IN, CATS_OUT, GOAL_COLORS, goalReach, monthDiff, todayISO, isActive, amountOf, spentVie,
 } from './data.js';
 
 const STORE = 'kalis-data-v2';
-const load = () => { try { const s = JSON.parse(localStorage.getItem(STORE)); if (s && s.version === 2) return s; } catch (e) {} return defaultState(); };
+const fixCat = (x) => {
+  if (x.kind === 'in' && !CATS_IN.includes(x.cat)) return { ...x, cat: 'salaire' };
+  if (x.kind === 'out' && !CATS_OUT.includes(x.cat)) return { ...x, cat: 'autre' };
+  return x;
+};
+const load = () => {
+  try {
+    const s = JSON.parse(localStorage.getItem(STORE));
+    if (s && s.version === 2) return { ...s, items: (s.items || []).map(fixCat), transactions: (s.transactions || []).map((t) => (t.kind === 'in' || t.kind === 'out' ? fixCat(t) : t)) };
+  } catch (e) {}
+  return defaultState();
+};
 const sign = (k) => (k === 'in' || k === 'withdraw' ? '+' : '−');
 const tone = (k) => (k === 'in' || k === 'withdraw' ? 'pos' : k === 'save' ? 'sav' : 'neg');
 const KindIc = ({ k }) => { const I = k === 'in' || k === 'withdraw' ? ArrowDownLeft : k === 'save' ? PiggyBank : ArrowUpRight; return <div className="ic"><I size={16} /></div>; };
@@ -56,7 +68,7 @@ export default function App() {
     <ThemeCtx.Provider value={PAL[eff]}>
     <div className="app">
       <aside className="side">
-        <div className="brand"><div className="brand-mark">K</div><div className="brand-name">Kalis</div></div>
+        <div className="brand"><img className="brand-logo" src={logoUrl} alt="" /><div className="brand-name">Kalis</div></div>
         {NAV.map(([sec, items]) => (
           <React.Fragment key={sec || 'x'}>
             {sec ? <div className="nav-sec">{sec}</div> : <div style={{ height: 14 }} />}
@@ -348,10 +360,11 @@ function Goals({ st, bal, rows, open, remove, addTx }) {
   const c = useC(); const axis = axisOf(c);
   const cur = mkey(new Date());
   const [fund, setFund] = useState(null);
+  const [xfer, setXfer] = useState(null);
   const data = rows.map((r) => { const o = { label: r.label, long: mLabel(r.key, true) }; st.goals.forEach((g) => { o[g.id] = r.goals[g.id] || 0; }); return o; });
   return (
     <>
-      <Top title="Objectifs" sub="Épargne affectée à tes projets"><button className="btn p" onClick={() => open('goal')}><Plus size={16} />Nouvel objectif</button></Top>
+      <Top title="Objectifs" sub="Épargne affectée à tes projets">{st.goals.length > 0 && <button className="btn s" onClick={() => setXfer({ from: 'dispo', to: st.goals[0].id })}><Repeat size={15} />Transfert</button>}<button className="btn p" onClick={() => open('goal')}><Plus size={16} />Nouvel objectif</button></Top>
       <div className="content">
         {!st.goals.length ? <div className="card"><Empty icon={Target} title="Aucun objectif pour l'instant" text="Définis un montant cible et une échéance, puis programme une épargne mensuelle." action={<button className="btn p" onClick={() => open('goal')}><Plus size={16} />Créer un objectif</button>} /></div> : (
           <>
@@ -366,7 +379,7 @@ function Goals({ st, bal, rows, open, remove, addTx }) {
                     <div className="goal-h">
                       <Ring pct={v / g.montant} color={g.couleur} size={84} stroke={8} />
                       <div style={{ flex: 1, minWidth: 0 }}><div className="goal-n">{g.nom}</div><div className="muted" style={{ fontSize: 12.5, marginTop: 1 }}>Échéance {mLabel(g.echeance, true)}</div>
-                        <div className="goal-v">{fmt(v)} <small>/ {fmt(g.montant)} FCFA</small></div></div>
+                        <div className="goal-v">{fmt(v)}</div><div className="muted num" style={{ fontSize: 12.5 }}>sur {fmt(g.montant)} FCFA</div></div>
                       <div style={{ display: 'flex', alignSelf: 'flex-start' }}><button className="ib" onClick={() => open('goal', g)}><Pencil size={15} /></button><button className="ib" onClick={() => { if (window.confirm(`Supprimer l'objectif « ${g.nom} » ?`)) remove('goals', g.id); }}><Trash2 size={15} /></button></div>
                     </div>
                     <div className="meta">
@@ -375,10 +388,11 @@ function Goals({ st, bal, rows, open, remove, addTx }) {
                       <div><div className="k">Atteinte</div><div className={'v ' + (ok ? 'pos' : 'neg')}>{r ? mLabel(r.key) : 'Non atteint'}</div></div>
                     </div>
                     <div className="muted" style={{ fontSize: 12.5, marginTop: 12 }}>{prog.length ? `Épargne programmée : ${prog.map((p) => `${short(p.montant)}/mois`).join(', ')}` : 'Aucune épargne programmée'}</div>
-                    <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+                    <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
                       <button className="btn p sm" onClick={() => setFund({ goal: g, kind: 'save', montant: '', date: todayISO() })}><ArrowUpRight size={14} />Alimenter</button>
                       <button className="btn s sm" onClick={() => open('item', { kind: 'save', goalId: g.id, label: `Épargne ${g.nom}` })}><Repeat size={14} />Programmer</button>
                       <button className="btn s sm" disabled={v <= 0} onClick={() => setFund({ goal: g, kind: 'withdraw', montant: '', date: todayISO() })}>Retirer</button>
+                      <button className="btn s sm" disabled={v <= 0} onClick={() => setXfer({ from: g.id, to: 'dispo' })}>Transférer</button>
                     </div>
                   </div>);
               })}
@@ -397,6 +411,13 @@ function Goals({ st, bal, rows, open, remove, addTx }) {
           </>
         )}
       </div>
+      {xfer && <TransferModal init={xfer} st={st} bal={bal} onClose={() => setXfer(null)} onOk={(from, to, montant, date) => {
+        const nom = (id) => (id === 'dispo' ? 'Solde disponible' : gname(st, id));
+        const label = `Transfert ${nom(from)} → ${nom(to)}`;
+        if (from !== 'dispo') addTx({ date, label, kind: 'withdraw', cat: 'epargne', montant, goalId: from });
+        if (to !== 'dispo') addTx({ date, label, kind: 'save', cat: 'epargne', montant, goalId: to });
+        setXfer(null);
+      }} />}
       {fund && (
         <Modal title={`${fund.kind === 'save' ? 'Alimenter' : 'Retirer de'} · ${fund.goal.nom}`} onClose={() => setFund(null)}
           footer={<><button className="btn s" onClick={() => setFund(null)}>Annuler</button><button className="btn p" disabled={!+fund.montant} onClick={() => { addTx({ date: fund.date, label: fund.kind === 'save' ? `Épargne ${fund.goal.nom}` : `Retrait ${fund.goal.nom}`, kind: fund.kind, cat: 'epargne', montant: +fund.montant, goalId: fund.goal.id }); setFund(null); }}>Valider</button></>}>
@@ -626,8 +647,29 @@ function ConfirmModal({ occ, goals, onClose, onOk }) {
   );
 }
 
+function TransferModal({ init, st, bal, onClose, onOk }) {
+  const [from, setFrom] = useState(init.from);
+  const [to, setTo] = useState(init.to);
+  const [m, setM] = useState('');
+  const [d, setD] = useState(todayISO());
+  const opts = [['dispo', 'Solde disponible'], ...st.goals.map((g) => [g.id, g.nom])];
+  const solde = (id) => (id === 'dispo' ? bal.dispo : bal.goals[id] || 0);
+  const over = +m > solde(from);
+  const ok = +m > 0 && from !== to && !over;
+  return (
+    <Modal title="Transfert" onClose={onClose} footer={<><button className="btn s" onClick={onClose}>Annuler</button><button className="btn p" disabled={!ok} onClick={() => onOk(from, to, +m, d)}>Transférer</button></>}>
+      <div className="form f2">
+        <Field label="De" hint={`Disponible : ${fcfa(solde(from))}`}><select className="inp" value={from} onChange={(e) => setFrom(e.target.value)}>{opts.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></Field>
+        <Field label="Vers" hint={`Solde : ${fcfa(solde(to))}`}><select className="inp" value={to} onChange={(e) => setTo(e.target.value)}>{opts.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></Field>
+        <Field label="Montant (FCFA)" hint={over ? 'Montant supérieur au solde de la source' : from === to ? 'Choisis deux comptes différents' : null}><input autoFocus className="inp num" type="number" value={m} onChange={(e) => setM(e.target.value)} /></Field>
+        <Field label="Date"><input className="inp" type="date" value={d} onChange={(e) => setD(e.target.value)} /></Field>
+      </div>
+    </Modal>
+  );
+}
+
 function TxModal({ init, goals, onClose, onOk }) {
-  const [t, setT] = useState({ kind: 'out', cat: 'vie', label: '', montant: '', date: todayISO(), goalId: goals[0]?.id, ...(init || {}) });
+  const [t, setT] = useState(() => fixCat({ kind: 'out', cat: 'vie', label: '', montant: '', date: todayISO(), goalId: goals[0]?.id, ...(init || {}) }));
   const u = (p) => setT((x) => ({ ...x, ...p }));
   const isG = t.kind === 'save' || t.kind === 'withdraw';
   const cats = t.kind === 'in' ? CATS_IN : CATS_OUT;
@@ -650,7 +692,7 @@ function TxModal({ init, goals, onClose, onOk }) {
 
 function ItemModal({ item, goals, onClose, onOk }) {
   const cur = mkey(new Date());
-  const [it, setIt] = useState(() => { const x = { id: uid(), label: '', kind: 'out', cat: 'factures', montant: '', jour: 1, debut: addMonths(cur, 1), fin: null, every: 1, ...(item || {}) }; if (!x.goalId && goals[0]) x.goalId = goals[0].id; return x; });
+  const [it, setIt] = useState(() => { const x = { id: uid(), label: '', kind: 'out', cat: 'factures', montant: '', jour: 1, debut: addMonths(cur, 1), fin: null, every: 1, ...(item || {}) }; if (!x.goalId && goals[0]) x.goalId = goals[0].id; if (!item?.id) { if (x.kind === 'in' && !CATS_IN.includes(x.cat)) x.cat = 'salaire'; if (x.kind === 'save') x.cat = 'epargne'; } return fixCat(x); });
   const u = (p) => setIt((x) => ({ ...x, ...p }));
   const once = it.fin && it.fin === it.debut;
   const freq = once ? 'once' : String(it.every || 1);

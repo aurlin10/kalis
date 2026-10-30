@@ -261,3 +261,6 @@ tbody tr:hover td { background: var(--hover); }
 .theme-sw { display: flex; gap: 2px; padding: 3px; margin-top: 10px; background: var(--line2); border-radius: 11px; }
 .theme-sw button { flex: 1; display: flex; align-items: center; justify-content: center; gap: 5px; border: 0; background: none; padding: 6px 4px; border-radius: 8px; font-size: 12px; font-weight: 500; color: var(--ink2); cursor: pointer; }
 .theme-sw button.on { background: var(--surface); color: var(--ink); font-weight: 600; box-shadow: 0 1px 3px rgba(15, 23, 42, .12); }
+
+.brand-logo { width: 34px; height: 34px; display: block; filter: drop-shadow(0 6px 10px rgba(79, 70, 229, .35)); }
+[data-theme='dark'] .brand-logo { filter: none; }
