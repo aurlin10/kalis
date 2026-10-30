@@ -1,27 +1,32 @@
 {
   "name": "kalis",
   "productName": "Kalis",
-  "version": "1.0.0",
+  "version": "1.4.0",
   "description": "Kalis - gestion financière personnelle",
-  "main": "electron/main.cjs",
+  "main": "electron/boot.cjs",
   "author": "Paul MIKABISSI",
   "type": "module",
   "scripts": {
-    "build": "vite build"
+    "build": "vite build",
+    "pack:asar": "node tools/pack-asar.cjs",
+    "release": "npm run build && npm run pack:asar"
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.1.0",
     "lucide-react": "^0.460.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "recharts": "^2.13.3"
+    "recharts": "^2.13.3",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@electron/asar": "^3.2.17",
     "@electron/packager": "^18.3.6",
     "@vitejs/plugin-react": "^4.3.4",
     "electron": "^33.2.1",
     "png-to-ico": "^2.1.8",
     "resedit": "^2.0.3",
     "vite": "^5.4.11"
-  }
+  },
+  "repository": "github:aurlin10/kalis"
 }

@@ -1,0 +1,29 @@
+# À chaque push sur main : si la version de package.json n'a pas encore de release,
+# on construit l'interface et on publie release/app.asar. Kalis la télécharge tout seul.
+name: Release Kalis
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - id: v
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+      - id: exists
+        run: |
+          if gh release view "v${{ steps.v.outputs.version }}" > /dev/null 2>&1; then echo "skip=1" >> "$GITHUB_OUTPUT"; else echo "skip=0" >> "$GITHUB_OUTPUT"; fi
+      - if: steps.exists.outputs.skip == '0'
+        run: npm ci && npm run release
+      - if: steps.exists.outputs.skip == '0'
+        run: gh release create "v${{ steps.v.outputs.version }}" release/app.asar --title "Kalis ${{ steps.v.outputs.version }}" --generate-notes --target "${{ github.sha }}"

@@ -1,11 +1,25 @@
-# Kalis — gestion financière personnelle (Electron + React)
+# Kalis — gestion financière personnelle
+
+Application de bureau Windows (Electron + React + Vite) : comptes Wave / Orange Money / Djamo / Mixx by Yas,
+budgets, objectifs, tontines, créances, projection, scénarios, bilan mensuel.
+
+## Où sont les choses
+- `C:\Kalis\Kalis.exe` : l'application installée
+- `C:\Kalis\source` : ce dépôt (code source)
+- `%APPDATA%\Kalis` : tes données (jamais touchées par une mise à jour)
+- `Documents\Kalis\Sauvegardes` : sauvegardes automatiques (une par jour, 30 conservées)
+
+## Publier une mise à jour
+1. Augmenter `version` dans `package.json` (ex. 1.4.0 → 1.5.0)
+2. `git commit` puis `git push`
+3. GitHub Actions (`.github/workflows/release.yml`) construit `app.asar` et crée la release `v1.5.0`
+4. Kalis détecte la release, la télécharge dans `%APPDATA%\Kalis\updates` et propose de redémarrer
 
 ## Développement
-npm install
-npm run build          # build Vite -> dist/
-npx electron .         # lancer l'app
+    npm install
+    npm run build        # interface -> dist/
+    npm run pack:asar    # release/app.asar
+    npx electron .       # lancer en local
 
-## Générer le .exe Windows
-npx @electron/packager . Kalis --platform=win32 --arch=x64 --out=out --overwrite --asar --ignore='^/src' --ignore='^/node_modules' --ignore='^/out'
-
-Les données utilisateur sont stockées dans %APPDATA%\Kalis (localStorage) : elles sont conservées d'une version à l'autre.
+## Icône du .exe
+    node tools\set-exe-icon.cjs C:\Kalis\Kalis.exe build\icon.ico

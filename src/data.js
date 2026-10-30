@@ -21,17 +21,30 @@ export const CATS = {
   salaire: 'Salaire', pension: 'Pension', freelance: 'Missions / freelance', remboursement: 'Remboursement', tontine: 'Tontine',
   logement: 'Logement', factures: 'Factures', abonnements: 'Abonnements', transport: 'Transport', alimentation: 'Alimentation',
   vie: 'Vie courante', sante: 'Santé', famille: 'Famille', epargne: 'Épargne objectif', autre: 'Autre',
+  loisirs: 'Sorties & loisirs', shopping: 'Shopping', frais: 'Frais de transfert', evenement: 'Événement',
 };
 export const CATS_IN = ['salaire', 'pension', 'freelance', 'remboursement', 'tontine', 'autre'];
-export const CATS_OUT = ['logement', 'factures', 'abonnements', 'transport', 'alimentation', 'vie', 'sante', 'famille', 'tontine', 'remboursement', 'autre'];
+export const CATS_OUT = ['alimentation', 'transport', 'loisirs', 'shopping', 'sante', 'famille', 'vie', 'logement', 'factures', 'abonnements', 'evenement', 'frais', 'tontine', 'remboursement', 'autre'];
+// Catégories de dépenses variables, pilotées par les budgets
+export const CATS_VIE = ['alimentation', 'transport', 'loisirs', 'shopping', 'sante', 'famille', 'vie'];
+export const ACCOUNT_PRESETS = [
+  { id: 'wave', nom: 'Wave', couleur: '#1DC8FF' },
+  { id: 'om', nom: 'Orange Money', couleur: '#FF7900' },
+  { id: 'djamo', nom: 'Djamo', couleur: '#7C3AED' },
+  { id: 'mixx', nom: 'Mixx by Yas', couleur: '#E6B400' },
+];
+export const EVENT_PRESETS = ['Tabaski', 'Korité', 'Magal', 'Rentrée scolaire', 'Voyage', 'Fêtes de fin d\'année'];
 export const GOAL_COLORS = ['#4F46E5', '#0EA5E9', '#10B981', '#F59E0B', '#EC4899', '#8B5CF6'];
 export const SERIES = ['#0F5C4D', '#2F4B7C', '#8A5A2B', '#6B4E8A', '#3D6B8A', '#7A3E4D', '#5B6B3A', '#8B8F98'];
 
 export const defaultState = () => ({
-  version: 2,
-  soldeInitial: 480000,
+  version: 3,
   dateInitiale: todayISO(),
-  budgetVie: 0,
+  accounts: ACCOUNT_PRESETS.map((a) => ({ ...a, initial: 0 })),
+  budgets: {},
+  favoris: [],
+  scenarios: [],
+  settings: { notif: true, backup: true, backupDir: null, pinHash: null, autoUpdate: true, autostart: false },
   hypothese: 'bas', // bas | moyen | haut  (revenus variables)
   inclureIncertains: true,
   horizon: '2027-12',
@@ -42,6 +55,39 @@ export const defaultState = () => ({
   done: {},
   transactions: [],
 });
+
+// ---------- Migration ----------
+export const fixCat = (x) => {
+  if (x.kind === 'in' && !CATS_IN.includes(x.cat)) return { ...x, cat: 'salaire' };
+  if (x.kind === 'out' && !CATS_OUT.includes(x.cat)) return { ...x, cat: 'autre' };
+  return x;
+};
+export const migrate = (s) => {
+  if (!s || !s.version) return null;
+  let st = { ...s };
+  if (st.version === 2) {
+    const first = ACCOUNT_PRESETS[0].id;
+    st.accounts = ACCOUNT_PRESETS.map((a, i) => ({ ...a, initial: i === 0 ? +st.soldeInitial || 0 : 0 }));
+    st.budgets = +st.budgetVie > 0 ? { vie: +st.budgetVie } : {};
+    st.transactions = (st.transactions || []).map((t) => ({ accountId: first, ...t }));
+    st.items = (st.items || []).map((i) => (i.kind === 'save' ? i : { accountId: first, ...i }));
+    st.favoris = []; st.scenarios = [];
+    st.settings = { notif: true, backup: true, backupDir: null, pinHash: null, autoUpdate: true, autostart: false };
+    delete st.soldeInitial; delete st.budgetVie;
+    st.version = 3;
+    st.migratedV3 = true;
+  }
+  if (st.version !== 3) return null;
+  const base = defaultState();
+  st = { ...base, ...st, settings: { ...base.settings, ...(st.settings || {}) } };
+  st.items = st.items.map(fixCat);
+  st.transactions = st.transactions.map((t) => (t.kind === 'in' || t.kind === 'out' ? fixCat(t) : t));
+  st.creances = st.creances.map((c) => ({ n: 1, ...c }));
+  if (!st.accounts.length) st.accounts = ACCOUNT_PRESETS.map((a) => ({ ...a, initial: 0 }));
+  return st;
+};
+export const budgetTotal = (st) => Object.entries(st.budgets || {}).reduce((s, [, v]) => s + (+v || 0), 0);
+export const accName = (st, id) => (st.accounts.find((a) => a.id === id) || st.accounts[0] || {}).nom || '—';
 
 // ---------- Occurrences ----------
 const active = (it, key, st) => {
@@ -76,18 +122,24 @@ export const occurrences = (st, key) => {
       if (i === +t.position - 1) { const gl = t.goalId && st.goals.find((g) => g.id === t.goalId); out.push({ ref: `tr:${t.id}:${key}`, label: `Cagnotte · ${t.nom}${gl ? ` → ${gl.nom}` : ''}`, kind: 'in', cat: 'tontine', amount: +t.cotisation * n, date: dateIn(key, t.jour), goalId: gl ? gl.id : undefined }); }
     }
   }
-  for (const c of st.creances) {
-    if (c.date.slice(0, 7) !== key) continue;
-    out.push({ ref: `cr:${c.id}:${key}`, label: c.sens === 'out' ? `Remboursement à ${c.nom}` : `Remboursement de ${c.nom}`, kind: c.sens === 'out' ? 'out' : 'in', cat: 'remboursement', amount: +c.montant, date: c.date });
-  }
+  for (const c of st.creances) for (const o of creanceOccs(c)) if (o.key === key) out.push(o);
   return out.sort((a, b) => a.date.localeCompare(b.date));
 };
 export const pending = (st, key) => occurrences(st, key).filter((o) => !st.done[o.ref]);
 
-// Créances en retard (date passée, non soldées) — à reporter dans le mois courant
-const overdue = (st, cur) => st.creances
-  .filter((c) => c.date.slice(0, 7) < cur && !st.done[`cr:${c.id}:${c.date.slice(0, 7)}`])
-  .map((c) => ({ ref: `cr:${c.id}:${c.date.slice(0, 7)}`, label: c.sens === 'out' ? `Remboursement à ${c.nom}` : `Remboursement de ${c.nom}`, kind: c.sens === 'out' ? 'out' : 'in', cat: 'remboursement', amount: +c.montant, date: c.date, late: true }));
+// Échéances d'une créance / dette (en une fois ou échelonnée)
+export const creanceOccs = (c) => {
+  const n = Math.max(1, +c.n || 1); const k0 = c.date.slice(0, 7); const jour = +c.date.slice(8, 10);
+  const part = Math.floor(+c.montant / n);
+  return Array.from({ length: n }, (_, i) => {
+    const key = addMonths(k0, i);
+    const amount = i === n - 1 ? +c.montant - part * (n - 1) : part;
+    const lbl = c.sens === 'out' ? `Remboursement à ${c.nom}` : `Remboursement de ${c.nom}`;
+    return { ref: `cr:${c.id}:${key}`, key, label: n > 1 ? `${lbl} (${i + 1}/${n})` : lbl, kind: c.sens === 'out' ? 'out' : 'in', cat: 'remboursement', amount, date: dateIn(key, jour) };
+  });
+};
+// Échéances de créances passées et non soldées — reportées dans le mois courant
+const overdue = (st, cur) => st.creances.flatMap((c) => creanceOccs(c)).filter((o) => o.key < cur && !st.done[o.ref]).map((o) => ({ ...o, late: true }));
 
 export const upcoming = (st, days = 35) => {
   const now = new Date(); const cur = mkey(now);
@@ -99,20 +151,31 @@ export const upcoming = (st, days = 35) => {
 };
 
 // ---------- Soldes ----------
+// Comptes = argent réel (Wave, Orange Money…). Objectifs = enveloppes virtuelles prises sur ces comptes.
+// Solde disponible = total des comptes − argent affecté aux objectifs.
 export const balances = (st) => {
-  let dispo = +st.soldeInitial;
+  const acc = {};
+  for (const a of st.accounts) acc[a.id] = +a.initial || 0;
+  const def = st.accounts[0]?.id;
+  const A = (id) => (id in acc ? id : def);
   const goals = {};
   for (const g of st.goals) goals[g.id] = +g.initial || 0;
+  let env = 0;
   for (const t of st.transactions) {
-    if (t.kind === 'in') { if (t.goalId && t.goalId in goals) goals[t.goalId] += t.montant; else dispo += t.montant; }
-    else if (t.kind === 'out') dispo -= t.montant;
-    else if (t.kind === 'save') { dispo -= t.montant; if (t.goalId in goals) goals[t.goalId] += t.montant; }
-    else if (t.kind === 'withdraw') { dispo += t.montant; if (t.goalId in goals) goals[t.goalId] -= t.montant; }
+    const m = +t.montant || 0;
+    if (t.kind === 'in') { acc[A(t.accountId)] += m; if (t.goalId && t.goalId in goals) { goals[t.goalId] += m; env += m; } }
+    else if (t.kind === 'out') acc[A(t.accountId)] -= m;
+    else if (t.kind === 'save') { if (t.goalId in goals) { goals[t.goalId] += m; env += m; } }
+    else if (t.kind === 'withdraw') { if (t.goalId in goals) { goals[t.goalId] -= m; env -= m; } }
+    else if (t.kind === 'move') { acc[A(t.accountId)] -= m; acc[A(t.toAccountId)] += m; }
   }
+  const comptes = Object.values(acc).reduce((s, v) => s + v, 0);
+  const dispo = comptes - env;
   const epargne = Object.values(goals).reduce((s, v) => s + v, 0);
-  return { dispo, goals, epargne, total: dispo + epargne };
+  return { dispo, goals, epargne, total: dispo + epargne, accounts: acc, comptes };
 };
-export const spentVie = (st, key) => st.transactions.filter((t) => t.kind === 'out' && t.cat === 'vie' && t.date.startsWith(key)).reduce((s, t) => s + t.montant, 0);
+export const spentCat = (st, key, cat) => st.transactions.filter((t) => t.kind === 'out' && t.cat === cat && t.date.startsWith(key)).reduce((s, t) => s + t.montant, 0);
+export const spentVie = (st, key) => st.transactions.filter((t) => t.kind === 'out' && CATS_VIE.includes(t.cat) && t.date.startsWith(key)).reduce((s, t) => s + t.montant, 0);
 
 // ---------- Projection ----------
 export const projection = (st, today = new Date()) => {
@@ -133,7 +196,7 @@ export const projection = (st, today = new Date()) => {
     for (const x of p.filter((x) => x.kind === 'save')) { epargne += x.amount; if (x.goalId in g) g[x.goalId] += x.amount; }
     // Entrées versées directement sur un objectif (ex. cagnotte de tontine liée)
     for (const x of p.filter((x) => x.kind === 'in' && x.goalId && x.goalId in g)) { epargne += x.amount; g[x.goalId] += x.amount; }
-    let vie = +st.budgetVie || 0;
+    let vie = budgetTotal(st);
     if (i === 0) { const rest = Math.max(0, vie - spentVie(st, key)); const left = daysIn(key) - today.getDate() + 1; vie = Math.min(rest, (vie * left) / daysIn(key)); }
     d = d + entrees - charges - epargne - vie;
     const totalG = Object.values(g).reduce((s, v) => s + v, 0);
@@ -142,3 +205,45 @@ export const projection = (st, today = new Date()) => {
   return rows;
 };
 export const goalReach = (rows, goal) => rows.find((r) => (r.goals[goal.id] || 0) >= +goal.montant);
+
+// ---------- Bilan ----------
+export const monthStats = (st, key) => {
+  const tx = st.transactions.filter((t) => t.date.startsWith(key));
+  const sum = (f) => tx.filter(f).reduce((s, t) => s + (+t.montant || 0), 0);
+  const entrees = sum((t) => t.kind === 'in');
+  const sorties = sum((t) => t.kind === 'out');
+  const epargne = sum((t) => t.kind === 'save') - sum((t) => t.kind === 'withdraw') + sum((t) => t.kind === 'in' && t.goalId);
+  const byCat = {};
+  for (const t of tx.filter((t) => t.kind === 'out')) byCat[t.cat] = (byCat[t.cat] || 0) + t.montant;
+  const vie = sum((t) => t.kind === 'out' && CATS_VIE.includes(t.cat));
+  const taux = entrees > 0 ? (entrees - sorties) / entrees : null;
+  return { key, entrees, sorties, epargne, solde: entrees - sorties, byCat, vie, taux, n: tx.length };
+};
+export const monthPlan = (st, key) => {
+  const occ = occurrences(st, key);
+  const sum = (f) => occ.filter(f).reduce((s, o) => s + o.amount, 0);
+  return { entrees: sum((o) => o.kind === 'in'), charges: sum((o) => o.kind === 'out'), epargne: sum((o) => o.kind === 'save') + sum((o) => o.kind === 'in' && o.goalId), vie: budgetTotal(st) };
+};
+
+// ---------- Scénarios (simulation, ne modifie jamais les vraies données) ----------
+export const SCEN_TYPES = { once_out: 'Dépense ponctuelle', once_in: 'Rentrée ponctuelle', stop: 'Arrêter un flux', change: 'Modifier un montant', budget: 'Changer le budget vie courante' };
+export const applyScenario = (st, sc) => {
+  let items = st.items.map((i) => ({ ...i }));
+  let budgets = { ...st.budgets };
+  for (const a of sc.adjustments || []) {
+    if (a.type === 'once_out' || a.type === 'once_in') {
+      items.push({ id: `sc_${a.id}`, label: a.label || SCEN_TYPES[a.type], kind: a.type === 'once_in' ? 'in' : 'out', cat: a.type === 'once_in' ? 'autre' : 'evenement', montant: +a.montant, jour: 15, debut: a.mois, fin: a.mois, every: 1 });
+    } else if (a.type === 'stop') {
+      items = items.map((i) => (i.id === a.itemId ? { ...i, fin: addMonths(a.mois, -1) } : i));
+    } else if (a.type === 'change') {
+      const it = items.find((i) => i.id === a.itemId);
+      if (it) {
+        items = items.map((i) => (i.id === a.itemId ? { ...i, fin: addMonths(a.mois, -1) } : i));
+        items.push({ ...it, id: `sc_${a.id}`, debut: a.mois, montant: +a.montant, variable: false, min: undefined, max: undefined });
+      }
+    } else if (a.type === 'budget') {
+      budgets = { vie: +a.montant };
+    }
+  }
+  return { ...st, items, budgets };
+};
