@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   LayoutGrid, LineChart as LineIc, Target, Repeat, Users, HandCoins, List, Settings, Plus, Check, Pencil, Trash2, X,
-  ArrowDownLeft, ArrowUpRight, PiggyBank, AlertTriangle, Info, Download, Upload, RotateCcw, Undo2, Wallet, CalendarDays,
+  ArrowDownLeft, ArrowUpRight, PiggyBank, Sun, Moon, Monitor, AlertTriangle, Info, Download, Upload, RotateCcw, Undo2, Wallet, CalendarDays,
 } from 'lucide-react';
 import {
   AreaChart, Area, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine,
@@ -23,6 +23,12 @@ export default function App() {
   const [page, setPage] = useState('dash');
   const [modal, setModal] = useState(null); // {type, data}
   useEffect(() => { try { localStorage.setItem(STORE, JSON.stringify(st)); } catch (e) {} }, [st]);
+  const mq = typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+  const [sysDark, setSysDark] = useState(!!mq?.matches);
+  useEffect(() => { if (!mq) return; const h = (e) => setSysDark(e.matches); mq.addEventListener('change', h); return () => mq.removeEventListener('change', h); }, []);
+  const mode = st.theme || 'light';
+  const eff = mode === 'system' ? (sysDark ? 'dark' : 'light') : mode;
+  useEffect(() => { document.documentElement.dataset.theme = eff; }, [eff]);
 
   const bal = useMemo(() => balances(st), [st]);
   const rows = useMemo(() => projection(st), [st]);
@@ -47,6 +53,7 @@ export default function App() {
   const Page = PAGES[page];
 
   return (
+    <ThemeCtx.Provider value={PAL[eff]}>
     <div className="app">
       <aside className="side">
         <div className="brand"><div className="brand-mark">K</div><div className="brand-name">Kalis</div></div>
@@ -62,6 +69,8 @@ export default function App() {
           <div className="bar"><i style={{ width: bal.total > 0 ? Math.max(0, Math.min(100, (bal.epargne / bal.total) * 100)) + '%' : 0 }} /></div>
           <div className="k" style={{ marginTop: 8, fontSize: 11.5 }}>{bal.total > 0 ? Math.round((bal.epargne / bal.total) * 100) : 0} % affecté aux objectifs</div>
         </div>
+        <div className="theme-sw">{[['light', Sun, 'Clair'], ['dark', Moon, 'Sombre'], ['system', Monitor, 'Auto']].map(([m, I, l]) => (
+            <button key={m} className={mode === m ? 'on' : ''} title={l} onClick={() => set({ theme: m })}><I size={13} />{l}</button>))}</div>
       </aside>
       <main className="main"><Page {...ctx} /></main>
 
@@ -72,6 +81,7 @@ export default function App() {
       {modal?.type === 'tontine' && <TontineModal t={modal.data} onClose={close} onOk={(t) => { upsert('tontines', t); close(); }} />}
       {modal?.type === 'creance' && <CreanceModal c={modal.data} onClose={close} onOk={(c) => { upsert('creances', c); close(); }} />}
     </div>
+    </ThemeCtx.Provider>
   );
 }
 
@@ -104,35 +114,43 @@ const Tip = ({ active, payload, label }) => {
     </div>
   );
 };
-const axis = { tick: { fill: '#9AA3B5', fontSize: 12 }, axisLine: false, tickLine: false };
+const PAL = {
+  light: { grid: '#EEF0F6', axis: '#9AA3B5', zero: '#E1E4EE', cursor: '#C7CBE0', track: '#EEF0F6', primary: '#4F46E5', sky: '#0EA5E9' },
+  dark: { grid: '#1E2536', axis: '#6B7489', zero: '#2A3245', cursor: '#3A4359', track: '#232A3B', primary: '#818CF8', sky: '#38BDF8' },
+};
+const ThemeCtx = React.createContext(PAL.light);
+const useC = () => React.useContext(ThemeCtx);
+const axisOf = (c) => ({ tick: { fill: c.axis, fontSize: 12 }, axisLine: false, tickLine: false });
 const gname = (st, id) => st.goals.find((g) => g.id === id)?.nom;
-const Ring = ({ pct, color = '#4F46E5', size = 64, stroke = 7, label }) => {
+const Ring = ({ pct, color, size = 64, stroke = 7, label }) => {
+  const C = useC(); color = color || C.primary;
   const r = (size - stroke) / 2; const c = 2 * Math.PI * r; const p = Math.max(0, Math.min(1, pct || 0));
   return (
     <div className="ring" style={{ width: size, height: size }}>
-      <svg width={size} height={size}><circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#EEF0F6" strokeWidth={stroke} />
+      <svg width={size} height={size}><circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={C.track} strokeWidth={stroke} />
         <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth={stroke} strokeLinecap="round" strokeDasharray={c} strokeDashoffset={c * (1 - p)} style={{ transition: 'stroke-dashoffset .8s ease' }} /></svg>
       <span style={{ fontSize: size > 80 ? 20 : 13 }}>{label ?? `${Math.round(p * 100)}%`}</span>
     </div>
   );
 };
 function TrendChart({ rows, h = 270, dots }) {
+  const c = useC(); const axis = axisOf(c);
   const data = rows.map((r) => ({ ...r, long: mLabel(r.key, true) }));
   return (
     <div style={{ height: h }}>
       <ResponsiveContainer>
         <AreaChart data={data} margin={{ top: 8, right: 24, left: 0, bottom: 0 }}>
           <defs>
-            <linearGradient id="fa" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#4F46E5" stopOpacity={0.2} /><stop offset="100%" stopColor="#4F46E5" stopOpacity={0} /></linearGradient>
-            <linearGradient id="fb" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#0EA5E9" stopOpacity={0.2} /><stop offset="100%" stopColor="#0EA5E9" stopOpacity={0} /></linearGradient>
+            <linearGradient id="fa" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={c.primary} stopOpacity={0.2} /><stop offset="100%" stopColor={c.primary} stopOpacity={0} /></linearGradient>
+            <linearGradient id="fb" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={c.sky} stopOpacity={0.2} /><stop offset="100%" stopColor={c.sky} stopOpacity={0} /></linearGradient>
           </defs>
-          <CartesianGrid stroke="#EEF0F6" strokeDasharray="3 4" vertical={false} />
+          <CartesianGrid stroke={c.grid} strokeDasharray="3 4" vertical={false} />
           <XAxis dataKey="label" interval={data.length > 14 ? 1 : 0} {...axis} />
           <YAxis tickFormatter={short} width={56} {...axis} />
-          <Tooltip content={<Tip />} cursor={{ stroke: '#C7CBE0', strokeDasharray: '3 3' }} />
-          <ReferenceLine y={0} stroke="#E1E4EE" />
-          <Area type="monotone" dataKey="epargneCumul" name="Épargne" stroke="#0EA5E9" strokeWidth={2.4} fill="url(#fb)" dot={dots ? { r: 2.5, fill: '#0EA5E9' } : false} animationDuration={500} />
-          <Area type="monotone" dataKey="dispo" name="Disponible" stroke="#4F46E5" strokeWidth={2.4} fill="url(#fa)" dot={dots ? { r: 2.5, fill: '#4F46E5' } : false} animationDuration={500} />
+          <Tooltip content={<Tip />} cursor={{ stroke: c.cursor, strokeDasharray: '3 3' }} />
+          <ReferenceLine y={0} stroke={c.zero} />
+          <Area type="monotone" dataKey="epargneCumul" name="Épargne" stroke={c.sky} strokeWidth={2.4} fill="url(#fb)" dot={dots ? { r: 2.5, fill: c.sky } : false} animationDuration={500} />
+          <Area type="monotone" dataKey="dispo" name="Disponible" stroke={c.primary} strokeWidth={2.4} fill="url(#fa)" dot={dots ? { r: 2.5, fill: c.primary } : false} animationDuration={500} />
         </AreaChart>
       </ResponsiveContainer>
     </div>
@@ -235,7 +253,7 @@ function Dashboard({ st, bal, rows, open, setPage }) {
         </div>
 
         <div className="grid g21 mt">
-          <Card title="Trajectoire" sub={`Jusqu'en ${mLabel(rows[rows.length - 1].key, true)}`} action={<div className="legend"><span><i style={{ background: '#4F46E5' }} />Disponible</span><span><i style={{ background: '#0EA5E9' }} />Épargne</span></div>}>
+          <Card title="Trajectoire" sub={`Jusqu'en ${mLabel(rows[rows.length - 1].key, true)}`} action={<div className="legend"><span><i style={{ background: 'var(--primary)' }} />Disponible</span><span><i style={{ background: 'var(--sky)' }} />Épargne</span></div>}>
             <TrendChart rows={rows} h={270} />
           </Card>
           <Card title="Objectifs" sub={`${st.goals.length} actif${st.goals.length > 1 ? 's' : ''}`} action={<button className="btn s sm" onClick={() => setPage('goals')}>Voir tout</button>} flush>
@@ -305,7 +323,7 @@ function Projection({ st, set, rows }) {
           <Kpi icon={AlertTriangle} tone="o" k="Point bas du solde" v={<span className={minD.dispo < 0 ? 'neg' : ''}>{fmt(minD.dispo)}</span>} f={mLabel(minD.key, true)} />
           <Kpi icon={Repeat} tone="g" k="Entrées / dépenses" v={<><span className="pos">{short(totIn)}</span> <span className="muted" style={{ fontWeight: 400 }}>/</span> <span className="neg">{short(totOut)}</span></>} f="Hors épargne" />
         </div>
-        <Card title="Évolution" style={{ marginTop: 16 }} action={<div className="legend"><span><i style={{ background: '#4F46E5' }} />Disponible</span><span><i style={{ background: '#0EA5E9' }} />Épargne cumulée</span></div>}>
+        <Card title="Évolution" style={{ marginTop: 16 }} action={<div className="legend"><span><i style={{ background: 'var(--primary)' }} />Disponible</span><span><i style={{ background: 'var(--sky)' }} />Épargne cumulée</span></div>}>
           <TrendChart rows={rows} h={330} dots />
         </Card>
         <div className="card mt tbl" style={{ overflow: 'hidden' }}>
@@ -327,6 +345,7 @@ function Projection({ st, set, rows }) {
 
 // ================= OBJECTIFS =================
 function Goals({ st, bal, rows, open, remove, addTx }) {
+  const c = useC(); const axis = axisOf(c);
   const cur = mkey(new Date());
   const [fund, setFund] = useState(null);
   const data = rows.map((r) => { const o = { label: r.label, long: mLabel(r.key, true) }; st.goals.forEach((g) => { o[g.id] = r.goals[g.id] || 0; }); return o; });
@@ -368,7 +387,7 @@ function Goals({ st, bal, rows, open, remove, addTx }) {
               <div style={{ height: 300 }}>
                 <ResponsiveContainer>
                   <LineChart data={data} margin={{ top: 6, right: 24, left: 0, bottom: 0 }}>
-                    <CartesianGrid stroke="#EEF0F6" strokeDasharray="3 4" vertical={false} /><XAxis dataKey="label" interval={data.length > 14 ? 1 : 0} {...axis} /><YAxis tickFormatter={short} width={56} {...axis} /><Tooltip content={<Tip />} />
+                    <CartesianGrid stroke={c.grid} strokeDasharray="3 4" vertical={false} /><XAxis dataKey="label" interval={data.length > 14 ? 1 : 0} {...axis} /><YAxis tickFormatter={short} width={56} {...axis} /><Tooltip content={<Tip />} />
                     {st.goals.map((g) => <ReferenceLine key={'r' + g.id} y={+g.montant} stroke={g.couleur} strokeDasharray="4 4" strokeOpacity={.6} />)}
                     {st.goals.map((g) => <Line key={g.id} type="monotone" dataKey={g.id} name={g.nom} stroke={g.couleur} strokeWidth={2.4} dot={false} animationDuration={500} />)}
                   </LineChart>
@@ -556,6 +575,10 @@ function Params({ st, set }) {
             <div className="field"><label>Budget vie courante / mois (FCFA)</label><input className="inp num" type="number" value={st.budgetVie} onChange={(e) => set({ budgetVie: +e.target.value })} /></div>
             <div className="field"><label>Horizon de projection</label><input className="inp" type="month" value={st.horizon} onChange={(e) => e.target.value && set({ horizon: e.target.value })} /></div>
           </div>
+        </Card>
+        <Card title="Apparence" sub="Thème de l'application. « Auto » suit le réglage de Windows." style={{ marginTop: 16 }}>
+          <div className="seg">{[['light', Sun, 'Clair'], ['dark', Moon, 'Sombre'], ['system', Monitor, 'Automatique']].map(([m, I, l]) => (
+            <button key={m} className={(st.theme || 'light') === m ? 'on' : ''} onClick={() => set({ theme: m })} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><I size={14} />{l}</button>))}</div>
         </Card>
         <Card title="Données" sub="Tout est stocké localement sur ce PC. Exporte une sauvegarde régulièrement." style={{ marginTop: 16 }}>
           <div style={{ display: 'flex', gap: 8 }}>
