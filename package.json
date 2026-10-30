@@ -1,7 +1,7 @@
 {
   "name": "kalis",
   "productName": "Kalis",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "Kalis - gestion financière personnelle",
   "main": "electron/boot.cjs",
   "author": "Paul MIKABISSI",

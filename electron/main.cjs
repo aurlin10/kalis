@@ -18,7 +18,7 @@ const updatesDir = () => path.join(app.getPath('userData'), 'updates');
 let win;
 function create() {
   win = new BrowserWindow({
-    width: 1440, height: 900, minWidth: 1100, minHeight: 700,
+    width: 1440, height: 900, minWidth: 820, minHeight: 560,
     backgroundColor: '#F5F6FB', title: 'Kalis', autoHideMenuBar: true, show: false,
     icon: path.join(ROOT, 'build', 'icon.png'),
     webPreferences: { contextIsolation: true, sandbox: true, preload: path.join(__dirname, 'preload.cjs') },

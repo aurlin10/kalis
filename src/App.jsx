@@ -124,7 +124,7 @@ export default function App() {
         {NAV.map(([sec, items]) => (
           <React.Fragment key={sec || 'x'}>
             {sec ? <div className="nav-sec">{sec}</div> : <div style={{ height: 14 }} />}
-            {items.map(([k, l, I]) => <button key={k} className={'nav' + (page === k ? ' on' : '')} onClick={() => setPage(k)}><I size={17} strokeWidth={1.8} />{l}</button>)}
+            {items.map(([k, l, I]) => <button key={k} title={l} className={'nav' + (page === k ? ' on' : '')} onClick={() => setPage(k)}><I size={17} strokeWidth={1.8} /><span className="nl">{l}</span></button>)}
           </React.Fragment>
         ))}
         <div className="side-foot">
@@ -134,7 +134,7 @@ export default function App() {
           <div className="k" style={{ marginTop: 8, fontSize: 11.5 }}>{bal.total > 0 ? Math.round((bal.epargne / bal.total) * 100) : 0} % affecté aux objectifs</div>
         </div>
         <div className="theme-sw">{[['light', Sun, 'Clair'], ['dark', Moon, 'Sombre'], ['system', Monitor, 'Auto']].map(([m, I, l]) => (
-            <button key={m} className={mode === m ? 'on' : ''} title={l} onClick={() => set({ theme: m })}><I size={13} />{l}</button>))}
+            <button key={m} className={mode === m ? 'on' : ''} title={l} onClick={() => set({ theme: m })}><I size={13} /><span className="nl">{l}</span></button>))}
           {st.settings.pinHash && <button title="Verrouiller (Ctrl+L)" onClick={() => setLocked(true)} style={{ flex: '0 0 auto', padding: '6px 9px' }}><Lock size={13} /></button>}</div>
       </aside>
       <main className="main">
@@ -439,7 +439,7 @@ function Goals({ st, bal, rows, open, remove, addTx }) {
       <div className="content">
         {!st.goals.length ? <div className="card"><Empty icon={Target} title="Aucun objectif pour l'instant" text="Définis un montant cible et une échéance, puis programme une épargne mensuelle." action={<button className="btn p" onClick={() => open('goal')}><Plus size={16} />Créer un objectif</button>} /></div> : (
           <>
-            <div className="grid g3">
+            <div className="grid g3 goals-grid">
               {st.goals.map((g) => {
                 const v = bal.goals[g.id] || 0; const reste = Math.max(0, g.montant - v);
                 const mois = Math.max(1, monthDiff(cur, g.echeance) + 1); const r = goalReach(rows, g);
