@@ -42,6 +42,7 @@ export const defaultState = () => ({
   dateInitiale: todayISO(),
   accounts: ACCOUNT_PRESETS.map((a) => ({ ...a, initial: 0 })),
   budgets: {},
+  customCats: [],
   favoris: [],
   scenarios: [],
   settings: { notif: true, backup: true, backupDir: null, pinHash: null, autoUpdate: true, autostart: false },
@@ -129,7 +130,12 @@ export const occurrences = (st, key) => {
   return out.sort((a, b) => a.date.localeCompare(b.date));
 };
 // Les occurrences antérieures à la date de départ sont déjà comprises dans les soldes de départ
-export const pending = (st, key) => occurrences(st, key).filter((o) => !st.done[o.ref] && o.date >= (st.dateInitiale || ''));
+// Paiements partiels : opérations rattachées à une échéance via partOf, l'échéance reste due pour le reste
+export const paidMap = (st) => { const m = {}; for (const t of st.transactions) if (t.partOf) m[t.partOf] = (m[t.partOf] || 0) + (+t.montant || 0); return m; };
+export const pending = (st, key, pm = paidMap(st)) => occurrences(st, key)
+  .filter((o) => !st.done[o.ref] && o.date >= (st.dateInitiale || ''))
+  .map((o) => (pm[o.ref] ? { ...o, total: o.amount, paid: pm[o.ref], amount: Math.max(0, o.amount - pm[o.ref]) } : o))
+  .filter((o) => o.amount > 0);
 
 // Échéances d'une créance / dette (en une fois ou échelonnée)
 export const creanceOccs = (c) => {
@@ -151,7 +157,8 @@ export const overdue = (st, cur) => {
   for (; monthDiff(k, cur) > 0; k = addMonths(k, 1)) {
     for (const o of pending(st, k)) if (!o.ref.startsWith('cr:')) out.push({ ...o, late: true });
   }
-  for (const o of st.creances.flatMap((c) => creanceOccs(c))) if (o.key < cur && !st.done[o.ref]) out.push({ ...o, late: true });
+  const pm = paidMap(st);
+  for (const o of st.creances.flatMap((c) => creanceOccs(c))) if (o.key < cur && !st.done[o.ref]) { const p = pm[o.ref] || 0; if (o.amount - p > 0) out.push({ ...o, late: true, ...(p ? { total: o.amount, paid: p, amount: o.amount - p } : {}) }); }
   return out;
 };
 export const isGoalActive = (g) => !g.status || g.status === 'actif';
@@ -261,4 +268,44 @@ export const applyScenario = (st, sc) => {
     }
   }
   return { ...st, items, budgets };
+};
+
+// ---------- Catégories personnalisées ----------
+// Les catégories créées par l'utilisateur (id « c_… ») sont ajoutées aux référentiels au chargement.
+export const applyCustomCats = (list = []) => {
+  for (const k of Object.keys(CATS)) if (k.startsWith('c_')) delete CATS[k];
+  for (const arr of [CATS_IN, CATS_OUT, CATS_VIE]) for (let i = arr.length - 1; i >= 0; i--) if (arr[i].startsWith('c_')) arr.splice(i, 1);
+  for (const c of list) {
+    CATS[c.id] = c.nom;
+    if (c.kind === 'in') CATS_IN.splice(CATS_IN.length - 1, 0, c.id);
+    else { CATS_OUT.splice(CATS_VIE.length, 0, c.id); if (c.vie) CATS_VIE.push(c.id); }
+  }
+};
+
+// ---------- Montant prévu ajusté ----------
+// Flux dont le montant réel diffère du prévu depuis au moins 2 mois → suggestion d'ajustement
+export const amountSuggestions = (st) => {
+  const out = [];
+  for (const it of st.items) {
+    if (it.kind === 'save' || it.variable || it.fin === it.debut || it.ignoreSuggest === it.montant) continue;
+    const tx = st.transactions.filter((t) => t.ref && t.ref.startsWith(`i:${it.id}:`)).sort((a, b) => b.ref.localeCompare(a.ref)).slice(0, 3);
+    if (tx.length < 2) continue;
+    const diffs = tx.filter((t) => Math.abs(t.montant - it.montant) / it.montant > 0.03);
+    if (diffs.length !== tx.length) continue;
+    const avg = Math.round(tx.reduce((s, t) => s + t.montant, 0) / tx.length / 100) * 100;
+    out.push({ item: it, avg, n: tx.length });
+  }
+  return out;
+};
+
+// ---------- Bilan hebdomadaire ----------
+const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+export const weekKey = (d = new Date()) => { const x = new Date(d); const day = (x.getDay() + 6) % 7; x.setDate(x.getDate() - day); return iso(x); };
+export const weeklySummary = (st, now = new Date()) => {
+  const start = weekKey(now); const end = iso(now);
+  const spent = st.transactions.filter((t) => t.kind === 'out' && t.date >= start && t.date <= end).reduce((s, t) => s + t.montant, 0);
+  const cur = mkey(now); const bt = budgetTotal(st); const vie = spentVie(st, cur);
+  const n7 = new Date(now.getTime() + 7 * 864e5); const lim = iso(n7);
+  const next = upcoming(st, 8).filter((o) => o.date > end && o.date <= lim);
+  return { spent, budgetLeft: bt - vie, bt, next, nextOut: next.filter((o) => o.kind !== 'in').reduce((s, o) => s + o.amount, 0), nextIn: next.filter((o) => o.kind === 'in').reduce((s, o) => s + o.amount, 0) };
 };

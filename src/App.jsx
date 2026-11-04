@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   LayoutGrid, LineChart as LineIc, Target, Repeat, Users, HandCoins, List, Settings, Plus, Check, Pencil, Trash2, X,
   ArrowDownLeft, ArrowUpRight, PiggyBank, Sun, Moon, Monitor, AlertTriangle, Info, Download, Upload, RotateCcw, Undo2, Wallet, CalendarDays,
-  ArrowLeftRight, BarChart3, FlaskConical, Lock, Bell, Star, FileSpreadsheet, FileText, FolderOpen, RefreshCw, Gauge, PartyPopper, KeyRound, ShieldCheck, Smartphone, Keyboard, Power, Delete, Sparkles, Search, Trophy, Archive, History, CheckCheck, Clock, Banknote, ArchiveRestore,
+  ArrowLeftRight, BarChart3, FlaskConical, Lock, Bell, Star, FileSpreadsheet, FileText, FolderOpen, RefreshCw, Gauge, PartyPopper, KeyRound, ShieldCheck, Smartphone, Keyboard, Power, Delete, Sparkles, Search, Trophy, Archive, History, CheckCheck, Clock, Banknote, ArchiveRestore, Zap, Tag, CalendarRange,
 } from 'lucide-react';
 import {
   AreaChart, Area, LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine,
@@ -11,7 +11,7 @@ import logoUrl from '../build/logo.svg';
 import {
   defaultState, balances, projection, pending, upcoming, occurrences, mkey, addMonths, mLabel, dLabel, fmt, fcfa, short, uid,
   CATS, CATS_IN, CATS_OUT, CATS_VIE, GOAL_COLORS, goalReach, monthDiff, todayISO, isActive, amountOf, spentVie, spentCat,
-  migrate, fixCat, budgetTotal, accName, creanceOccs, monthStats, monthPlan, applyScenario, SCEN_TYPES, EVENT_PRESETS, daysIn, isGoalActive,
+  migrate, fixCat, budgetTotal, accName, creanceOccs, monthStats, monthPlan, applyScenario, SCEN_TYPES, EVENT_PRESETS, daysIn, isGoalActive, applyCustomCats, amountSuggestions, weeklySummary, weekKey, paidMap,
 } from './data.js';
 
 const STORE = 'kalis-data-v2';
@@ -24,6 +24,7 @@ const KindIc = ({ k }) => { const I = k === 'in' || k === 'withdraw' ? ArrowDown
 // ================= APP =================
 export default function App() {
   const [st, setSt] = useState(load);
+  applyCustomCats(st.customCats || []);
   const [page, setPage] = useState('dash');
   const [modal, setModal] = useState(null); // {type, data}
   const [locked, setLocked] = useState(() => !!load().settings?.pinHash);
@@ -101,6 +102,24 @@ export default function App() {
     return () => { clearTimeout(t); clearInterval(iv); };
   }, [st.settings.notif, st.lastNotif, st.items, st.tontines, st.creances, st.done]);
 
+  // Bilan de la semaine : dimanche soir (ou lundi matin si l'app était fermée)
+  const sendWeekly = (force) => {
+    if (typeof Notification === 'undefined') return;
+    const d = new Date(); let target = null; let at = d;
+    if (d.getDay() === 0 && d.getHours() >= 18) target = weekKey(d);
+    else if (d.getDay() === 1 && d.getHours() < 12) { at = new Date(d.getTime() - 864e5); at.setHours(23, 59); target = weekKey(at); }
+    if (!force && (!target || st.lastWeekly === target)) return;
+    const w = weeklySummary(st, force ? d : at);
+    const body = [`Dépensé cette semaine : ${fmt(w.spent)} FCFA`, w.bt ? `Reste sur tes budgets du mois : ${fmt(w.budgetLeft)} FCFA` : null, w.next.length ? `7 prochains jours : ${w.next.length} échéance${w.next.length > 1 ? 's' : ''} (−${fmt(w.nextOut)} / +${fmt(w.nextIn)})` : 'Aucune échéance dans les 7 prochains jours'].filter(Boolean).join('\n');
+    try { new Notification('Kalis · Bilan de la semaine', { body }); } catch (e) {}
+    if (!force) set({ lastWeekly: target });
+  };
+  useEffect(() => {
+    if (st.settings.weekly === false) return;
+    const t = setTimeout(() => sendWeekly(false), 5000); const iv = setInterval(() => sendWeekly(false), 1800e3);
+    return () => { clearTimeout(t); clearInterval(iv); };
+  }, [st.settings.weekly, st.lastWeekly, st.transactions]);
+
   const exportPDF = async (name) => {
     const prev = document.documentElement.dataset.theme;
     document.documentElement.dataset.theme = 'light'; document.body.classList.add('printing');
@@ -109,7 +128,7 @@ export default function App() {
   };
   const doExcel = () => exportExcel(st, rows);
 
-  const ctx = { st, set, bal, rows, upsert, remove, addTx, delTx, updateTx, setDone, undoRef, open, setPage, setSettings, setToast, exportPDF, doExcel, version, update, checkUpdate, lastBackup, lock: () => setLocked(true) };
+  const ctx = { st, set, bal, rows, upsert, remove, addTx, delTx, updateTx, setDone, undoRef, open, setPage, setSettings, setToast, sendWeekly, exportPDF, doExcel, version, update, checkUpdate, lastBackup, lock: () => setLocked(true) };
 
   const NAV = [
     ['Pilotage', [['dash', "Vue d'ensemble", LayoutGrid], ['bilan', 'Bilan mensuel', BarChart3], ['proj', 'Projection', LineIc], ['scen', 'Scénarios', FlaskConical], ['goals', 'Objectifs', Target]]],
@@ -148,9 +167,15 @@ export default function App() {
         {toast && <div className="toast"><CheckCheck size={16} /><span>{toast.msg}</span>{toast.prev && <button onClick={() => { setSt(toast.prev); setToast(null); }}>Annuler</button>}<button className="x" onClick={() => setToast(null)}><X size={14} /></button></div>}
       </main>
 
-      {modal?.type === 'confirm' && <ConfirmModal occ={modal.data} st={st} onClose={close} onOk={(m, d, skip, accountId) => { if (skip) setDone(modal.data.ref, true); else addTx({ date: d, label: modal.data.label, kind: modal.data.kind, cat: modal.data.cat, montant: m, goalId: modal.data.goalId, accountId }, modal.data.ref); close(); }} />}
+      {modal?.type === 'confirm' && <ConfirmModal occ={modal.data} st={st} onClose={close} onOk={(m, d, skip, accountId, opt = {}) => {
+        const o = modal.data;
+        if (skip) setDone(o.ref, true);
+        else if (opt.partial) { addTx({ date: d, label: `${o.label} (partiel)`, kind: o.kind, cat: o.cat, montant: m, goalId: o.goalId, accountId, partOf: o.ref }); setToast({ msg: `Paiement partiel : il reste ${fmt(o.amount - m)} FCFA`, prev: st }); }
+        else addTx({ date: d, label: o.label, kind: o.kind, cat: o.cat, montant: m, goalId: o.goalId, accountId }, o.ref);
+        if (opt.updateItem && o.src) upsert('items', { ...o.src, montant: m });
+        close(); }} />}
       {modal?.type === 'tx' && <TxModal init={modal.data} st={st} bal={bal} goals={st.goals.filter(isGoalActive)} onClose={close} onFav={(f) => set({ favoris: f })} onOk={(list, fav) => { if (modal.data?.editId) updateTx(modal.data.editId, list[0]); else { addMany(list); if (fav) set({ favoris: [...st.favoris, fav] }); } close(); }} />}
-      {modal?.type === 'bulk' && <BulkModal list={modal.data} st={st} onClose={close} onOk={(sel) => { const prev = st; sel.forEach((o) => addTx({ date: o.date, label: o.label, kind: o.kind, cat: o.cat, montant: o.amount, goalId: o.goalId, accountId: o.kind === 'save' ? undefined : o.accountId }, o.ref)); setToast({ msg: `${sel.length} échéance${sel.length > 1 ? 's' : ''} validée${sel.length > 1 ? 's' : ''}`, prev }); close(); }} />}
+      {modal?.type === 'bulk' && <BulkModal list={modal.data} st={st} onClose={close} onOk={(sel) => { const prev = st; sel.forEach((o) => { const part = o.kind !== 'save' && o.amount < o.due; const tx = { date: o.date, label: part ? `${o.label} (partiel)` : o.label, kind: o.kind, cat: o.cat, montant: o.amount, goalId: o.goalId, accountId: o.kind === 'save' ? undefined : o.accountId }; if (part) addTx({ ...tx, partOf: o.ref }); else addTx(tx, o.ref); }); setToast({ msg: `${sel.length} échéance${sel.length > 1 ? 's' : ''} validée${sel.length > 1 ? 's' : ''}`, prev }); close(); }} />}
       {modal?.type === 'goalDone' && <GoalDoneModal g={modal.data} st={st} bal={bal} onClose={close} onOk={({ spend, montant, accountId, cat, label, release }) => {
         const g = modal.data; const today = todayISO(); const prev = st;
         if (spend && montant > 0) { addTx({ date: today, label, kind: 'withdraw', cat: 'epargne', montant, goalId: g.id }); addTx({ date: today, label, kind: 'out', cat, montant, accountId }); }
@@ -158,6 +183,8 @@ export default function App() {
         setSt((s) => ({ ...s, goals: s.goals.map((x) => (x.id === g.id ? { ...x, status: g.archive ? 'archive' : 'atteint', doneDate: today } : x)) }));
         setToast({ msg: g.archive ? `${g.nom} archivé` : `Bravo, objectif ${g.nom} atteint !`, prev }); close();
       }} />}
+      {modal?.type === 'plan' && <PlanModal g={modal.data} st={st} bal={bal} onClose={close} onOk={(item, replace) => { setSt((s) => ({ ...s, items: (replace ? s.items.filter((i) => !(i.kind === 'save' && i.goalId === item.goalId)) : s.items).concat(item) })); setToast({ msg: `Épargne programmée : ${fmt(item.montant)} FCFA / mois`, prev: st }); close(); }} />}
+      {modal?.type === 'cat' && <CatModal onClose={close} onOk={(c) => { set({ customCats: [...(st.customCats || []), c] }); close(); }} />}
       {modal?.type === 'goalHist' && <GoalHistoryModal g={modal.data} st={st} bal={bal} onClose={close} />}
       {modal?.type === 'account' && <AccountModal a={modal.data} st={st} onClose={close} onOk={(a) => { upsert('accounts', a); close(); }} onDelete={(id) => { remove('accounts', id); close(); }} />}
       {modal?.type === 'pin' && <PinModal onClose={close} onOk={async (p) => { setSettings({ pinHash: await sha('kalis:' + p) }); close(); }} />}
@@ -255,7 +282,7 @@ function OccRow({ o, st, open }) {
     <div className="row">
       <DChip iso={o.date} late={o.late} />
       <div style={{ minWidth: 0 }}>
-        <div className="t">{o.label}{o.kind === 'save' && o.goalId && <span className="badge p">{gname(st, o.goalId)}</span>}{o.late && <span className="badge warn">En attente</span>}</div>
+        <div className="t">{o.label}{o.kind === 'save' && o.goalId && <span className="badge p">{gname(st, o.goalId)}</span>}{o.late && <span className="badge warn">En attente</span>}{o.paid ? <span className="badge">Reste {fmt(o.amount)} / {fmt(o.total)}</span> : null}</div>
         <div className="s">{o.kind === 'in' ? 'Entrée' : o.kind === 'save' ? 'Épargne' : 'Sortie'} · {CATS[o.cat] || ''}{o.variable && ` · ${short(o.min)}–${short(o.max)}`}</div>
       </div>
       <div className={'a ' + tone(o.kind)}>{sign(o.kind)} {fmt(o.amount)}</div>
@@ -266,7 +293,7 @@ function OccRow({ o, st, open }) {
 
 // ================= DASHBOARD =================
 const REP_COLORS = ['#4F46E5', '#0EA5E9', '#10B981', '#F59E0B', '#EC4899', '#8B5CF6', '#64748B', '#14B8A6'];
-function Dashboard({ st, bal, rows, open, setPage }) {
+function Dashboard({ st, bal, rows, open, setPage, addTx, setSettings, setToast, upsert }) {
   const today = todayISO();
   const up = upcoming(st);
   const cur = mkey(new Date());
@@ -305,6 +332,7 @@ function Dashboard({ st, bal, rows, open, setPage }) {
   for (const a of st.accounts.filter((a) => (bal.accounts[a.id] || 0) < 0)) alerts.push({ tone: 'r', icon: Smartphone, text: <>Le compte <b>{a.nom}</b> est négatif ({fmt(bal.accounts[a.id])})</>, act: ['Comptes', () => setPage('comptes')] });
   for (const g of goalsA) { const r = goalReach(rows, g); if (!r || monthDiff(g.echeance, r.key) > 0) alerts.push({ tone: 'o', icon: Target, text: <><b>{g.nom}</b> : non atteint à l'échéance ({mLabel(g.echeance)})</>, act: ['Objectifs', () => setPage('goals')] }); }
   for (const g of goalsA.filter((g) => (bal.goals[g.id] || 0) >= g.montant)) alerts.push({ tone: 'g', icon: Trophy, text: <><b>{g.nom}</b> : montant atteint !</>, act: ['Clôturer', () => open('goalDone', g)] });
+  for (const sg of amountSuggestions(st)) alerts.push({ tone: 'p', icon: RefreshCw, text: <><b>{sg.item.label}</b> : prévu {fmt(sg.item.montant)}, réel moyen <b>{fmt(sg.avg)}</b> sur {sg.n} mois</>, act: ['Ajuster', () => { upsert('items', { ...sg.item, montant: sg.avg }); setToast({ msg: `${sg.item.label} : ${fmt(sg.avg)} FCFA à partir de maintenant`, prev: st }); }] });
   if (st.migratedV3) alerts.push({ tone: 'p', icon: Smartphone, text: <>Répartis ton solde de départ entre tes comptes</>, act: ['Répartir', () => setPage('comptes')] });
 
   const groups = {};
@@ -363,6 +391,8 @@ function Dashboard({ st, bal, rows, open, setPage }) {
             {bt > 0 && <div className="bar" style={{ marginTop: 12, height: 6 }}><i style={{ width: Math.min(100, (vie / bt) * 100) + '%', background: vie > bt ? 'var(--neg)' : 'var(--warn)' }} /></div>}
           </Kpi>
         </div>
+
+        <QuickAdd st={st} addTx={addTx} setSettings={setSettings} setToast={setToast} />
 
         <div className="acc-strip mt">
           {st.accounts.map((a) => (
@@ -527,7 +557,7 @@ function Goals({ st, bal, rows, open, remove, addTx, upsert }) {
                     {tons.map((t) => <div key={t.id} style={{ fontSize: 12.5, marginTop: 4 }}><span className="badge p" style={{ marginLeft: 0 }}><Users size={11} />{t.nom}</span> <span className="muted">cagnotte de {fmt(t.cotisation * t.participants)} en {mLabel(addMonths(t.debut, t.position - 1), true)}{st.done[`tr:${t.id}:${addMonths(t.debut, t.position - 1)}`] ? ' · reçue' : ''}</span></div>)}
                     <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
                       <button className="btn p sm" onClick={() => setFund({ goal: g, kind: 'save', montant: '', date: todayISO() })}><ArrowUpRight size={14} />Alimenter</button>
-                      <button className="btn s sm" onClick={() => open('item', { kind: 'save', goalId: g.id, label: `Épargne ${g.nom}` })}><Repeat size={14} />Programmer</button>
+                      <button className="btn s sm" onClick={() => open('plan', g)}><CalendarRange size={14} />Planifier</button>
                       <button className="btn s sm" disabled={v <= 0} onClick={() => setFund({ goal: g, kind: 'withdraw', montant: '', date: todayISO() })}>Retirer</button>
                       <button className="btn s sm" disabled={v <= 0} onClick={() => setXfer({ from: g.id, to: 'dispo' })}>Transférer</button>
                     </div>
@@ -752,7 +782,7 @@ function Operations({ st, open, delTx, doExcel }) {
 }
 
 // ================= PARAMÈTRES =================
-function Params({ st, set, setSettings, open, version, checkUpdate, lastBackup, doExcel }) {
+function Params({ st, set, setSettings, open, version, checkUpdate, lastBackup, doExcel, sendWeekly }) {
   const [auto, setAuto] = useState(null); const [upd, setUpd] = useState(null); const [defDir, setDefDir] = useState('');
   useEffect(() => { if (native) { native.getAutoLaunch().then(setAuto); native.backupDefaultDir().then(setDefDir); } }, []);
   const exp = async () => { const json = JSON.stringify(st, null, 2); const name = `kalis-sauvegarde-${todayISO()}.json`; if (native) native.saveFile(name, btoa(unescape(encodeURIComponent(json))), [{ name: 'Sauvegarde Kalis', extensions: ['json'] }]); else { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([json])); a.download = name; a.click(); } };
@@ -777,6 +807,7 @@ function Params({ st, set, setSettings, open, version, checkUpdate, lastBackup, 
           <Card title="Rappels" sub="Notifications Windows">
             <div style={{ display: 'grid', gap: 12 }}>
               <Toggle on={S.notif !== false} onChange={(v) => setSettings({ notif: v })} label="Me rappeler les échéances" hint="Une notification par jour pour ce qui tombe aujourd'hui ou demain" />
+              <Toggle on={S.weekly !== false} onChange={(v) => setSettings({ weekly: v })} label="Bilan de la semaine le dimanche soir" hint={<>Dépenses de la semaine, reste des budgets, échéances à venir · <a className="link" onClick={(e) => { e.preventDefault(); sendWeekly(true); }}>Voir maintenant</a></>} />
               <Toggle on={!!auto} onChange={async (v) => native && setAuto(await native.setAutoLaunch(v))} label="Lancer Kalis au démarrage de Windows" hint={native ? 'Démarre en réduit, pour ne rater aucun rappel' : 'Disponible dans l\'application'} />
             </div>
           </Card>
@@ -856,16 +887,23 @@ function ConfirmModal({ occ, st, onClose, onOk }) {
   const [acc, setAcc] = useState(occ.src?.accountId || st.accounts[0]?.id);
   const [d, setD] = useState(todayISO());
   const [skip, setSkip] = useState(false);
+  const [partialOff, setPartialOff] = useState(false);
+  const [upd, setUpd] = useState(false);
   const verb = occ.kind === 'in' ? 'reçu' : occ.kind === 'save' ? 'épargné' : 'payé';
+  const canPartial = occ.kind !== 'save' && +m > 0 && +m < occ.amount;
+  const partial = canPartial && !partialOff;
+  const canUpd = !!occ.src && !occ.src.variable && occ.kind !== 'save' && !occ.paid && +m > 0 && +m !== +occ.src.montant && !partial && occ.src.fin !== occ.src.debut;
   return (
-    <Modal title={occ.label} onClose={onClose} footer={<><button className="btn s" onClick={onClose}>Annuler</button><button className="btn p" onClick={() => onOk(+m, d, skip, acc)}><Check size={15} />Valider</button></>}>
-      <div className="muted" style={{ marginBottom: 16, fontSize: 13 }}>Prévu le {dLabel(occ.date)} : <b style={{ color: 'var(--ink)' }}>{fcfa(occ.amount)}</b>{occ.variable && ` (entre ${fmt(occ.min)} et ${fmt(occ.max)})`}</div>
+    <Modal title={occ.label} onClose={onClose} footer={<><button className="btn s" onClick={onClose}>Annuler</button><button className="btn p" onClick={() => onOk(+m, d, skip, acc, { partial, updateItem: canUpd && upd })}><Check size={15} />{partial ? 'Valider le paiement partiel' : 'Valider'}</button></>}>
+      <div className="muted" style={{ marginBottom: 16, fontSize: 13 }}>Prévu le {dLabel(occ.date)} : <b style={{ color: 'var(--ink)' }}>{fcfa(occ.total || occ.amount)}</b>{occ.paid ? <> · déjà {verb} <b style={{ color: 'var(--ink)' }}>{fmt(occ.paid)}</b>, reste <b style={{ color: 'var(--ink)' }}>{fmt(occ.amount)}</b></> : null}{occ.variable && ` (entre ${fmt(occ.min)} et ${fmt(occ.max)})`}</div>
       <div className="form f2">
         <Field label={`Montant ${verb} (FCFA)`}><input className="inp num" type="number" autoFocus value={m} disabled={skip} onChange={(e) => setM(e.target.value)} /></Field>
         <Field label="Date"><input className="inp" type="date" value={d} disabled={skip} onChange={(e) => setD(e.target.value)} /></Field>
         {occ.kind !== 'save' && <Field label={occ.kind === 'in' ? 'Reçu sur' : 'Payé depuis'} span><AccPicker st={st} value={acc} onChange={setAcc} disabled={skip} /></Field>}
       </div>
-      <label className="switch" style={{ marginTop: 16 }}><input type="checkbox" checked={skip} onChange={(e) => setSkip(e.target.checked)} />Déjà pris en compte dans mon solde courant</label>
+      {canPartial && !skip && <label className="switch" style={{ marginTop: 16 }}><input type="checkbox" checked={partial} onChange={(e) => setPartialOff(!e.target.checked)} />Paiement partiel : les {fmt(occ.amount - m)} FCFA restants resteront à {occ.kind === 'in' ? 'recevoir' : 'payer'}</label>}
+      {canUpd && !skip && <label className="switch" style={{ marginTop: 12 }}><input type="checkbox" checked={upd} onChange={(e) => setUpd(e.target.checked)} />Utiliser {fmt(m)} FCFA comme montant prévu pour les prochains mois</label>}
+      <label className="switch" style={{ marginTop: 12 }}><input type="checkbox" checked={skip} onChange={(e) => setSkip(e.target.checked)} />Déjà pris en compte dans mon solde courant</label>
     </Modal>
   );
 }
@@ -902,6 +940,9 @@ function TxModal({ init, st, bal, goals, onClose, onOk, onFav }) {
   const u = (p) => setT((x) => ({ ...x, ...p }));
   const isG = t.kind === 'save' || t.kind === 'withdraw';
   const isM = t.kind === 'move';
+  const fromAcc = st.accounts.find((a) => a.id === t.accountId) || {};
+  const autoFee = +t.montant > 0 && (+fromAcc.feePct || +fromAcc.feeFix) ? Math.round(+t.montant * (+fromAcc.feePct || 0) / 100 + (+fromAcc.feeFix || 0)) : 0;
+  const fraisVal = t.fraisManual ? t.frais : (autoFee ? String(autoFee) : '');
   const cats = t.kind === 'in' ? CATS_IN : CATS_OUT;
   const ok = +t.montant > 0 && (!isG || t.goalId) && (!isM || (t.toAccountId && t.toAccountId !== t.accountId));
   const favs = (st.favoris || []).filter((f) => f.kind === t.kind || (!isG && !isM && (f.kind === 'in' || f.kind === 'out')));
@@ -910,7 +951,7 @@ function TxModal({ init, st, bal, goals, onClose, onOk, onFav }) {
     const m = +t.montant;
     if (isM) {
       const list = [{ date: t.date, label: t.label || `Virement ${accName(st, t.accountId)} → ${accName(st, t.toAccountId)}`, kind: 'move', cat: 'virement', montant: m, accountId: t.accountId, toAccountId: t.toAccountId }];
-      if (+t.frais > 0) list.push({ date: t.date, label: `Frais · ${accName(st, t.accountId)} → ${accName(st, t.toAccountId)}`, kind: 'out', cat: 'frais', montant: +t.frais, accountId: t.accountId });
+      if (+fraisVal > 0) list.push({ date: t.date, label: `Frais · ${accName(st, t.accountId)} → ${accName(st, t.toAccountId)}`, kind: 'out', cat: 'frais', montant: +fraisVal, accountId: t.accountId });
       return onOk(list);
     }
     const label = t.label || (isG ? `${t.kind === 'save' ? 'Épargne' : 'Retrait'} ${goals.find((g) => g.id === t.goalId)?.nom}` : CATS[t.cat]);
@@ -932,7 +973,7 @@ function TxModal({ init, st, bal, goals, onClose, onOk, onFav }) {
         {isM ? (<>
           <Field label="Depuis" span hint={`Solde : ${fcfa(bal.accounts[t.accountId] || 0)}`}><AccPicker st={st} value={t.accountId} onChange={(v) => u({ accountId: v, toAccountId: v === t.toAccountId ? st.accounts.find((a) => a.id !== v)?.id : t.toAccountId })} /></Field>
           <Field label="Vers" span><AccPicker st={st} value={t.toAccountId} onChange={(v) => u({ toAccountId: v })} exclude={t.accountId} /></Field>
-          <Field label="Frais (FCFA)" hint="Facultatif · enregistrés comme dépense"><input className="inp num" type="number" value={t.frais} onChange={(e) => u({ frais: e.target.value })} /></Field>
+          <Field label="Frais (FCFA)" hint={!t.fraisManual && autoFee ? `Calculés : ${fromAcc.feePct ? `${fromAcc.feePct} %` : ''}${fromAcc.feePct && fromAcc.feeFix ? ' + ' : ''}${fromAcc.feeFix ? `${fmt(fromAcc.feeFix)} FCFA` : ''} (${fromAcc.nom})` : 'Facultatif · enregistrés comme dépense'}><input className="inp num" type="number" value={fraisVal} onChange={(e) => u({ frais: e.target.value, fraisManual: true })} /></Field>
           <Field label="Libellé"><input className="inp" placeholder="Facultatif" value={t.label} onChange={(e) => u({ label: e.target.value })} /></Field>
         </>) : (<>
           {isG ? <Field label="Objectif">{goals.length ? <select className="inp" value={t.goalId} onChange={(e) => u({ goalId: e.target.value })}>{goals.map((g) => <option key={g.id} value={g.id}>{g.nom}</option>)}</select> : <span className="hint">Crée d'abord un objectif.</span>}</Field>
@@ -1091,15 +1132,18 @@ function Comptes({ st, set, bal, open, upsert, remove }) {
 }
 
 function AccountModal({ a, st, onClose, onOk, onDelete }) {
-  const [x, setX] = useState({ id: uid(), nom: '', couleur: '#64748B', initial: 0, ...(a || {}) });
+  const [x, setX] = useState({ id: uid(), nom: '', couleur: '#64748B', initial: 0, feePct: '', feeFix: '', ...(a || {}) });
+  const clean = () => ({ ...x, initial: +x.initial || 0, feePct: +x.feePct || 0, feeFix: +x.feeFix || 0 });
   const used = a && st.transactions.some((t) => t.accountId === a.id || t.toAccountId === a.id);
   return (
-    <Modal title={a ? `Modifier · ${a.nom}` : 'Nouveau compte'} onClose={onClose} onEnter={() => x.nom && onOk({ ...x, initial: +x.initial || 0 })}
+    <Modal title={a ? `Modifier · ${a.nom}` : 'Nouveau compte'} onClose={onClose} onEnter={() => x.nom && onOk(clean())}
       footer={<>{a && st.accounts.length > 1 && <button className="btn d" style={{ marginRight: 'auto' }} disabled={used} title={used ? 'Ce compte a des opérations' : ''} onClick={() => onDelete(a.id)}><Trash2 size={14} />Supprimer</button>}
-        <button className="btn s" onClick={onClose}>Annuler</button><button className="btn p" disabled={!x.nom} onClick={() => onOk({ ...x, initial: +x.initial || 0 })}>Enregistrer</button></>}>
+        <button className="btn s" onClick={onClose}>Annuler</button><button className="btn p" disabled={!x.nom} onClick={() => onOk(clean())}>Enregistrer</button></>}>
       <div className="form f2">
         <Field label="Nom"><input className="inp" autoFocus value={x.nom} onChange={(e) => setX({ ...x, nom: e.target.value })} /></Field>
         <Field label={`Solde au ${dLabel(st.dateInitiale)} (FCFA)`} hint="Solde de départ du compte"><input className="inp num" type="number" value={x.initial} onChange={(e) => setX({ ...x, initial: e.target.value })} /></Field>
+        <Field label="Frais d'envoi (%)" hint="Appliqués aux virements depuis ce compte"><input className="inp num" type="number" step="0.1" placeholder="ex. 1" value={x.feePct} onChange={(e) => setX({ ...x, feePct: e.target.value })} /></Field>
+        <Field label="Frais fixes (FCFA)" hint="Ajoutés à chaque virement"><input className="inp num" type="number" placeholder="0" value={x.feeFix} onChange={(e) => setX({ ...x, feeFix: e.target.value })} /></Field>
         <Field label="Couleur" span><div className="swatches">{['#1DC8FF', '#FF7900', '#7C3AED', '#E6B400', '#10B981', '#64748B', '#EC4899'].map((c) => <button key={c} className={'sw' + (x.couleur === c ? ' on' : '')} style={{ background: c }} onClick={() => setX({ ...x, couleur: c })} />)}</div></Field>
       </div>
     </Modal>
@@ -1109,7 +1153,7 @@ function AccountModal({ a, st, onClose, onOk, onDelete }) {
 // =====================================================================
 // ================= BUDGETS ===========================================
 // =====================================================================
-function Budgets({ st, set }) {
+function Budgets({ st, set, open }) {
   const [m, setM] = useState(mkey(new Date()));
   const [draft, setDraft] = useState(() => ({ ...st.budgets }));
   const total = CATS_VIE.reduce((s, c) => s + (+draft[c] || 0), 0);
@@ -1147,6 +1191,14 @@ function Budgets({ st, set }) {
               </div>);
           })}
         </div>
+        <Card title="Mes catégories" sub="Catégories personnalisées, utilisables partout dans Kalis" style={{ marginTop: 16 }} action={<button className="btn s sm" onClick={() => open('cat')}><Plus size={14} />Nouvelle catégorie</button>} flush>
+          {(st.customCats || []).length ? st.customCats.map((c) => (
+            <div className="row" key={c.id}>
+              <div className="chip-ic p" style={{ width: 30, height: 30 }}><Tag size={14} /></div>
+              <div><div className="t">{c.nom}</div><div className="s">{c.kind === 'in' ? 'Entrée' : c.vie ? 'Dépense courante · suivie dans les budgets' : 'Dépense'} · {st.transactions.filter((t) => t.cat === c.id).length} opération(s)</div></div>
+              <button className="ib" style={{ marginLeft: 'auto' }} title="Supprimer (les opérations passent en « Autre »)" onClick={() => { const b2 = { ...st.budgets }; delete b2[c.id]; set({ customCats: st.customCats.filter((x) => x.id !== c.id), budgets: b2, transactions: st.transactions.map((t) => (t.cat === c.id ? { ...t, cat: 'autre' } : t)), items: st.items.map((i) => (i.cat === c.id ? { ...i, cat: 'autre' } : i)) }); }}><Trash2 size={15} /></button>
+            </div>)) : <Empty icon={Tag} title="Aucune catégorie personnalisée" text="Ex. Ndogou, Crédit téléphone, Coiffeur…" />}
+        </Card>
         <div className="muted" style={{ fontSize: 12.5, marginTop: 10 }}>Les dépenses sont comptées à partir des opérations enregistrées dans ces catégories. Les charges fixes (loyer, factures…) se gèrent dans Flux récurrents.</div>
       </div>
     </>
@@ -1363,7 +1415,7 @@ function BulkModal({ list, st, onClose, onOk }) {
   const net = sel.reduce((s, r) => s + (r.kind === 'in' ? +r.montant : -r.montant), 0);
   return (
     <Modal title="Valider les échéances échues" onClose={onClose}
-      footer={<><span className="muted" style={{ fontSize: 12.5, marginRight: 'auto' }}>{sel.length} sélectionnée{sel.length > 1 ? 's' : ''} · impact {net >= 0 ? '+' : '−'}{fmt(Math.abs(net))} FCFA</span><button className="btn s" onClick={onClose}>Annuler</button><button className="btn p" disabled={!sel.length} onClick={() => onOk(sel.map((r) => ({ ...r, amount: +r.montant })))}><CheckCheck size={15} />Valider</button></>}>
+      footer={<><span className="muted" style={{ fontSize: 12.5, marginRight: 'auto' }}>{sel.length} sélectionnée{sel.length > 1 ? 's' : ''} · impact {net >= 0 ? '+' : '−'}{fmt(Math.abs(net))} FCFA</span><button className="btn s" onClick={onClose}>Annuler</button><button className="btn p" disabled={!sel.length} onClick={() => onOk(sel.map((r) => ({ ...r, due: r.amount, amount: +r.montant })))}><CheckCheck size={15} />Valider</button></>}>
       <div className="muted" style={{ fontSize: 13, marginBottom: 12 }}>Ajuste les montants réels si besoin, décoche ce qui n'a pas encore eu lieu.</div>
       <div className="bulk-list">
         {rows.map((r, i) => (
@@ -1451,6 +1503,89 @@ function GoalHistoryModal({ g, st, bal, onClose }) {
             <b className={plus(t) ? 'pos' : 'neg'}>{plus(t) ? '+' : '−'}{fmt(t.montant)}</b>
           </div>))}
         {!tx.length && !(+g.initial > 0) && <div className="empty" style={{ padding: 20 }}>Aucun mouvement pour l'instant.</div>}
+      </div>
+    </Modal>
+  );
+}
+
+// =====================================================================
+// ================= 1.6.0 : saisie express, plan d'épargne, catégories =
+// =====================================================================
+function QuickAdd({ st, addTx, setSettings, setToast }) {
+  const q = st.settings.quick || {};
+  const [m, setM] = useState('');
+  const [cat, setCat] = useState(q.cat && CATS_VIE.includes(q.cat) ? q.cat : 'alimentation');
+  const [acc, setAcc] = useState(q.acc && st.accounts.some((a) => a.id === q.acc) ? q.acc : st.accounts[0]?.id);
+  const ref = React.useRef(null);
+  const add = () => {
+    if (!(+m > 0)) { ref.current?.focus(); return; }
+    addTx({ date: todayISO(), label: CATS[cat], kind: 'out', cat, montant: +m, accountId: acc });
+    setSettings({ quick: { cat, acc } });
+    setToast({ msg: `${fmt(+m)} FCFA · ${CATS[cat]} · ${accName(st, acc)}`, prev: st });
+    setM(''); ref.current?.focus();
+  };
+  return (
+    <div className="card quick mt">
+      <div className="quick-l"><Zap size={16} /><b>Saisie express</b></div>
+      <div className="quick-amt">
+        <input ref={ref} className="inp num big" type="number" placeholder="Montant" value={m} onChange={(e) => setM(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} />
+        <div className="quick-chips">{[100, 150, 200, 500, 1000, 2000].map((v) => <button key={v} onClick={() => setM(String(v))}>{v >= 1000 ? `${v / 1000} k` : v}</button>)}</div>
+      </div>
+      <div className="quick-cats">{CATS_VIE.map((c) => <button key={c} className={cat === c ? 'on' : ''} onClick={() => { setCat(c); ref.current?.focus(); }}>{CATS[c]}</button>)}</div>
+      <select className="inp quick-acc" value={acc} onChange={(e) => setAcc(e.target.value)}>{st.accounts.map((a) => <option key={a.id} value={a.id}>{a.nom}</option>)}</select>
+      <button className="btn p" onClick={add}><Plus size={15} />Ajouter</button>
+    </div>
+  );
+}
+
+function PlanModal({ g, st, bal, onClose, onOk }) {
+  const nk = addMonths(mkey(new Date()), 1);
+  const v = bal.goals[g.id] || 0;
+  const tons = st.tontines.filter((t) => t.goalId === g.id && !st.done[`tr:${t.id}:${addMonths(t.debut, t.position - 1)}`]).reduce((x, t) => x + t.cotisation * t.participants, 0);
+  const reste = Math.max(0, g.montant - v - tons);
+  const n = Math.max(1, monthDiff(nk, g.echeance) + 1);
+  const existing = st.items.filter((i) => i.kind === 'save' && i.goalId === g.id);
+  const [montant, setMontant] = useState(String(Math.ceil(reste / n / 500) * 500));
+  const [jour, setJour] = useState(28);
+  const [debut, setDebut] = useState(nk);
+  const [replace, setReplace] = useState(existing.length > 0);
+  const item = { id: uid(), label: `Épargne ${g.nom}`, kind: 'save', cat: 'epargne', goalId: g.id, montant: +montant, jour: +jour || 28, debut, fin: g.echeance, every: 1 };
+  const sim = useMemo(() => {
+    const items = (replace ? st.items.filter((i) => !(i.kind === 'save' && i.goalId === g.id)) : st.items).concat(+montant > 0 ? [item] : []);
+    const rows = projection({ ...st, items });
+    return { min: rows.reduce((a, r) => (r.dispo < a.dispo ? r : a), rows[0]), reach: goalReach(rows, g) };
+  }, [montant, jour, debut, replace]);
+  const ok = sim.reach && monthDiff(g.echeance, sim.reach.key) <= 0;
+  return (
+    <Modal title={`Planifier · ${g.nom}`} onClose={onClose}
+      footer={<><button className="btn s" onClick={onClose}>Annuler</button><button className="btn p" disabled={!(+montant > 0)} onClick={() => onOk(item, replace)}><CalendarDays size={15} />Programmer</button></>}>
+      <div className="meta" style={{ marginTop: 0, marginBottom: 16 }}>
+        <div><div className="k">Reste à épargner</div><div className="v">{fmt(reste)}</div></div>
+        <div><div className="k">Mois restants</div><div className="v">{n}</div></div>
+        <div><div className="k">Cagnotte prévue</div><div className="v">{tons ? fmt(tons) : '—'}</div></div>
+      </div>
+      <div className="form f3">
+        <Field label="Par mois (FCFA)"><input className="inp num big" type="number" autoFocus value={montant} onChange={(e) => setMontant(e.target.value)} /></Field>
+        <Field label="Jour"><input className="inp num" type="number" min={1} max={31} value={jour} onChange={(e) => setJour(e.target.value)} /></Field>
+        <Field label="À partir de"><input className="inp" type="month" value={debut} onChange={(e) => e.target.value && setDebut(e.target.value)} /></Field>
+      </div>
+      {existing.length > 0 && <label className="switch" style={{ marginTop: 14 }}><input type="checkbox" checked={replace} onChange={(e) => setReplace(e.target.checked)} />Remplacer l'épargne déjà programmée ({existing.map((i) => `${short(i.montant)}/mois`).join(', ')})</label>}
+      <div className={'alert ' + (sim.min.dispo < 0 ? 'warn' : 'info')} style={{ marginTop: 16, marginBottom: 0 }}>
+        <div className="chip-ic">{sim.min.dispo < 0 ? <AlertTriangle size={16} /> : <Check size={16} />}</div>
+        <div>Objectif {ok ? <>atteint en <b>{mLabel(sim.reach.key, true)}</b></> : sim.reach ? <>atteint en <b>{mLabel(sim.reach.key, true)}</b>, après l'échéance</> : <b>non atteint</b>} · point bas du solde : <b className={sim.min.dispo < 0 ? 'neg' : ''}>{fmt(sim.min.dispo)}</b> en {mLabel(sim.min.key)}{sim.min.dispo < 0 ? '. Ton solde ne supporte pas ce rythme.' : '.'}</div>
+      </div>
+    </Modal>
+  );
+}
+
+function CatModal({ onClose, onOk }) {
+  const [x, setX] = useState({ id: `c_${uid()}`, nom: '', kind: 'out', vie: true });
+  return (
+    <Modal title="Nouvelle catégorie" onClose={onClose} footer={<><button className="btn s" onClick={onClose}>Annuler</button><button className="btn p" disabled={!x.nom.trim()} onClick={() => onOk({ ...x, nom: x.nom.trim() })}>Créer</button></>}>
+      <div className="seg" style={{ display: 'flex', marginBottom: 16 }}>{[['out', 'Dépense'], ['in', 'Entrée']].map(([k, l]) => <button key={k} style={{ flex: 1 }} className={x.kind === k ? 'on' : ''} onClick={() => setX({ ...x, kind: k })}>{l}</button>)}</div>
+      <div className="form">
+        <Field label="Nom"><input className="inp" autoFocus placeholder={x.kind === 'out' ? 'ex. Ndogou, Crédit téléphone, Coiffeur' : 'ex. Prime, Vente'} value={x.nom} onChange={(e) => setX({ ...x, nom: e.target.value })} /></Field>
+        {x.kind === 'out' && <label className="switch"><input type="checkbox" checked={x.vie} onChange={(e) => setX({ ...x, vie: e.target.checked })} />Dépense courante : suivie dans les budgets et la saisie express</label>}
       </div>
     </Modal>
   );
