@@ -83,6 +83,9 @@ export const migrate = (s) => {
   st.items = st.items.map(fixCat);
   st.transactions = st.transactions.map((t) => (t.kind === 'in' || t.kind === 'out' ? fixCat(t) : t));
   st.creances = st.creances.map((c) => ({ n: 1, ...c }));
+  // Réparation (1.5.1) : seuls l'épargne programmée et les cagnottes de tontine peuvent être rattachées à un objectif
+  st.items = st.items.map((i) => { if (i.kind !== 'save' && i.goalId) { const { goalId, ...rest } = i; return rest; } return i; });
+  st.transactions = st.transactions.map((t) => { if ((t.kind === 'in' || t.kind === 'out') && t.goalId && !String(t.ref || '').startsWith('tr:')) { const { goalId, ...rest } = t; return rest; } return t; });
   if (!st.accounts.length) st.accounts = ACCOUNT_PRESETS.map((a) => ({ ...a, initial: 0 }));
   return st;
 };
@@ -112,7 +115,7 @@ export const occurrences = (st, key) => {
   const out = [];
   for (const it of st.items) {
     if (!active(it, key, st)) continue;
-    out.push({ ref: `i:${it.id}:${key}`, src: it, label: it.label, kind: it.kind, cat: it.kind === 'save' ? 'epargne' : it.cat, amount: amountOf(it, st), date: dateIn(key, it.jour), goalId: it.goalId, variable: it.variable, min: it.min, max: it.max });
+    out.push({ ref: `i:${it.id}:${key}`, src: it, label: it.label, kind: it.kind, cat: it.kind === 'save' ? 'epargne' : it.cat, amount: amountOf(it, st), date: dateIn(key, it.jour), goalId: it.kind === 'save' ? it.goalId : undefined, variable: it.variable, min: it.min, max: it.max });
   }
   for (const t of st.tontines) {
     const n = +t.participants;

@@ -740,7 +740,7 @@ function Operations({ st, open, delTx, doExcel }) {
               <thead><tr><th>Date</th><th style={{ textAlign: 'left' }}>Libellé</th><th style={{ textAlign: 'left' }}>Catégorie</th><th style={{ textAlign: 'left' }}>Compte</th><th>Montant</th><th></th></tr></thead>
               <tbody>{list.map((t) => (
                 <tr key={t.id} className="clickable" onDoubleClick={() => open('tx', { ...t, editId: t.id, montant: String(t.montant) })}><td className="muted">{dLabel(t.date)}</td><td style={{ textAlign: 'left', fontWeight: 500 }}>{t.label}</td>
-                  <td style={{ textAlign: 'left' }} className="muted">{t.kind === 'move' ? 'Virement' : t.goalId ? gname(st, t.goalId) || 'Objectif supprimé' : CATS[t.cat]}</td>
+                  <td style={{ textAlign: 'left' }} className="muted">{t.kind === 'move' ? 'Virement' : t.goalId && (t.kind === 'save' || t.kind === 'withdraw' || t.ref?.startsWith('tr:')) ? gname(st, t.goalId) || 'Objectif supprimé' : CATS[t.cat]}</td>
                   <td style={{ textAlign: 'left' }}>{t.kind === 'save' || t.kind === 'withdraw' ? <span className="muted">—</span> : <span className="acc-tag"><i style={{ background: (st.accounts.find((a) => a.id === accOf(t)) || {}).couleur }} />{accName(st, accOf(t))}{t.kind === 'move' && <> → <i style={{ background: (st.accounts.find((a) => a.id === t.toAccountId) || {}).couleur }} />{accName(st, t.toAccountId)}</>}</span>}</td>
                   <td style={{ fontWeight: 600 }} className={tone(t.kind)}>{sign(t.kind)} {fmt(t.montant)}</td>
                   <td style={{ width: 80 }}><div style={{ display: 'flex', justifyContent: 'flex-end' }}><button className="ib" title="Modifier" onClick={() => open('tx', { ...t, editId: t.id, montant: String(t.montant) })}><Pencil size={15} /></button><button className="ib" title={t.ref ? 'Annuler la validation' : 'Supprimer'} onClick={() => delTx(t.id)}>{t.ref ? <Undo2 size={15} /> : <Trash2 size={15} />}</button></div></td></tr>))}</tbody>
@@ -948,7 +948,7 @@ function TxModal({ init, st, bal, goals, onClose, onOk, onFav }) {
 
 function ItemModal({ item, goals, st, onClose, onOk }) {
   const cur = mkey(new Date());
-  const [it, setIt] = useState(() => { const x = { id: uid(), label: '', kind: 'out', cat: 'factures', montant: '', jour: 1, debut: addMonths(cur, 1), fin: null, every: 1, accountId: st.accounts[0]?.id, ...(item || {}) }; if (x.cat === 'evenement' && !item?.id) x.fin = x.debut; if (!x.goalId && goals[0]) x.goalId = goals[0].id; if (!item?.id) { if (x.kind === 'in' && !CATS_IN.includes(x.cat)) x.cat = 'salaire'; if (x.kind === 'save') x.cat = 'epargne'; } return fixCat(x); });
+  const [it, setIt] = useState(() => { const x = { id: uid(), label: '', kind: 'out', cat: 'factures', montant: '', jour: 1, debut: addMonths(cur, 1), fin: null, every: 1, accountId: st.accounts[0]?.id, ...(item || {}) }; if (x.cat === 'evenement' && !item?.id) x.fin = x.debut; if (x.kind === 'save' && !x.goalId && goals[0]) x.goalId = goals[0].id; if (!item?.id) { if (x.kind === 'in' && !CATS_IN.includes(x.cat)) x.cat = 'salaire'; if (x.kind === 'save') x.cat = 'epargne'; } return fixCat(x); });
   const u = (p) => setIt((x) => ({ ...x, ...p }));
   const once = it.fin && it.fin === it.debut;
   const freq = once ? 'once' : String(it.every || 1);
@@ -956,7 +956,7 @@ function ItemModal({ item, goals, st, onClose, onOk }) {
   const valid = it.label && (it.variable ? +it.min > 0 && +it.max >= +it.min : +it.montant > 0) && (it.kind !== 'save' || it.goalId);
   const isNew = !item?.id;
   return (
-    <Modal title={isNew ? 'Nouveau flux' : 'Modifier le flux'} onClose={onClose} footer={<><button className="btn s" onClick={onClose}>Annuler</button><button className="btn p" disabled={!valid} onClick={() => onOk({ ...it, montant: it.variable ? +it.min : +it.montant, min: it.variable ? +it.min : undefined, max: it.variable ? +it.max : undefined, jour: +it.jour || 1, every: +it.every || 1 })}>Enregistrer</button></>}>
+    <Modal title={isNew ? 'Nouveau flux' : 'Modifier le flux'} onClose={onClose} footer={<><button className="btn s" onClick={onClose}>Annuler</button><button className="btn p" disabled={!valid} onClick={() => onOk({ ...it, goalId: it.kind === 'save' ? it.goalId : undefined, montant: it.variable ? +it.min : +it.montant, min: it.variable ? +it.min : undefined, max: it.variable ? +it.max : undefined, jour: +it.jour || 1, every: +it.every || 1 })}>Enregistrer</button></>}>
       <div className="seg" style={{ display: 'flex', marginBottom: 18 }}>
         {[['in', 'Revenu', 'salaire'], ['out', 'Charge', 'factures'], ['save', 'Épargne']].map(([k, l, c]) => <button key={k} style={{ flex: 1 }} className={it.kind === k ? 'on' : ''} onClick={() => u({ kind: k, cat: c || 'epargne', variable: false, incertain: false })}>{l}</button>)}
       </div>
