@@ -125,7 +125,8 @@ export const occurrences = (st, key) => {
   for (const c of st.creances) for (const o of creanceOccs(c)) if (o.key === key) out.push(o);
   return out.sort((a, b) => a.date.localeCompare(b.date));
 };
-export const pending = (st, key) => occurrences(st, key).filter((o) => !st.done[o.ref]);
+// Les occurrences antérieures à la date de départ sont déjà comprises dans les soldes de départ
+export const pending = (st, key) => occurrences(st, key).filter((o) => !st.done[o.ref] && o.date >= (st.dateInitiale || ''));
 
 // Échéances d'une créance / dette (en une fois ou échelonnée)
 export const creanceOccs = (c) => {
@@ -139,7 +140,18 @@ export const creanceOccs = (c) => {
   });
 };
 // Échéances de créances passées et non soldées — reportées dans le mois courant
-const overdue = (st, cur) => st.creances.flatMap((c) => creanceOccs(c)).filter((o) => o.key < cur && !st.done[o.ref]).map((o) => ({ ...o, late: true }));
+// + flux, tontines et épargne programmée des 6 derniers mois jamais validés : ils restent « en retard »
+export const overdue = (st, cur) => {
+  const start = (st.dateInitiale || `${cur}-01`).slice(0, 7);
+  let k = monthDiff(start, cur) > 6 ? addMonths(cur, -6) : start;
+  const out = [];
+  for (; monthDiff(k, cur) > 0; k = addMonths(k, 1)) {
+    for (const o of pending(st, k)) if (!o.ref.startsWith('cr:')) out.push({ ...o, late: true });
+  }
+  for (const o of st.creances.flatMap((c) => creanceOccs(c))) if (o.key < cur && !st.done[o.ref]) out.push({ ...o, late: true });
+  return out;
+};
+export const isGoalActive = (g) => !g.status || g.status === 'actif';
 
 export const upcoming = (st, days = 35) => {
   const now = new Date(); const cur = mkey(now);

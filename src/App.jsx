@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   LayoutGrid, LineChart as LineIc, Target, Repeat, Users, HandCoins, List, Settings, Plus, Check, Pencil, Trash2, X,
   ArrowDownLeft, ArrowUpRight, PiggyBank, Sun, Moon, Monitor, AlertTriangle, Info, Download, Upload, RotateCcw, Undo2, Wallet, CalendarDays,
-  ArrowLeftRight, BarChart3, FlaskConical, Lock, Bell, Star, FileSpreadsheet, FileText, FolderOpen, RefreshCw, Gauge, PartyPopper, KeyRound, ShieldCheck, Smartphone, Keyboard, Power, Delete, Sparkles,
+  ArrowLeftRight, BarChart3, FlaskConical, Lock, Bell, Star, FileSpreadsheet, FileText, FolderOpen, RefreshCw, Gauge, PartyPopper, KeyRound, ShieldCheck, Smartphone, Keyboard, Power, Delete, Sparkles, Search, Trophy, Archive, History, CheckCheck, Clock, Banknote, ArchiveRestore,
 } from 'lucide-react';
 import {
   AreaChart, Area, LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine,
@@ -11,7 +11,7 @@ import logoUrl from '../build/logo.svg';
 import {
   defaultState, balances, projection, pending, upcoming, occurrences, mkey, addMonths, mLabel, dLabel, fmt, fcfa, short, uid,
   CATS, CATS_IN, CATS_OUT, CATS_VIE, GOAL_COLORS, goalReach, monthDiff, todayISO, isActive, amountOf, spentVie, spentCat,
-  migrate, fixCat, budgetTotal, accName, creanceOccs, monthStats, monthPlan, applyScenario, SCEN_TYPES, EVENT_PRESETS, daysIn,
+  migrate, fixCat, budgetTotal, accName, creanceOccs, monthStats, monthPlan, applyScenario, SCEN_TYPES, EVENT_PRESETS, daysIn, isGoalActive,
 } from './data.js';
 
 const STORE = 'kalis-data-v2';
@@ -42,9 +42,14 @@ export default function App() {
   const rows = useMemo(() => projection(st), [st]);
   const set = (p) => setSt((s) => ({ ...s, ...p }));
   const upsert = (coll, obj) => setSt((s) => ({ ...s, [coll]: s[coll].some((x) => x.id === obj.id) ? s[coll].map((x) => (x.id === obj.id ? obj : x)) : [...s[coll], obj] }));
-  const remove = (coll, id) => setSt((s) => ({ ...s, [coll]: s[coll].filter((x) => x.id !== id) }));
+  const [toast, setToast] = useState(null);
+  useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 7000); return () => clearTimeout(t); }, [toast]);
+  const NOMS = { items: 'Flux supprimé', goals: 'Objectif supprimé', tontines: 'Tontine supprimée', creances: 'Créance supprimée', accounts: 'Compte supprimé' };
+  const remove = (coll, id) => { setToast({ msg: NOMS[coll] || 'Élément supprimé', prev: st }); setSt((s) => ({ ...s, [coll]: s[coll].filter((x) => x.id !== id) })); };
+  const updateTx = (id, nt) => setSt((s) => ({ ...s, transactions: s.transactions.map((x) => (x.id === id ? { ...x, ...nt, id, ref: x.ref } : x)) }));
   const addTx = (tx, ref) => setSt((s) => { const t = { id: uid(), ...tx, ref }; const done = { ...s.done }; if (ref) done[ref] = t.id; return { ...s, transactions: [t, ...s.transactions], done }; });
-  const delTx = (id) => setSt((s) => { const t = s.transactions.find((x) => x.id === id); const done = { ...s.done }; if (t?.ref) delete done[t.ref]; return { ...s, transactions: s.transactions.filter((x) => x.id !== id), done }; });
+  const delTx = (id) => { const t0 = st.transactions.find((x) => x.id === id); setToast({ msg: t0?.ref ? 'Validation annulée' : 'Opération supprimée', prev: st }); delTx0(id); };
+  const delTx0 = (id) => setSt((s) => { const t = s.transactions.find((x) => x.id === id); const done = { ...s.done }; if (t?.ref) delete done[t.ref]; return { ...s, transactions: s.transactions.filter((x) => x.id !== id), done }; });
   const setDone = (ref, v) => setSt((s) => { const done = { ...s.done }; if (v) done[ref] = true; else delete done[ref]; return { ...s, done }; });
   const undoRef = (ref) => { const v = st.done[ref]; if (typeof v === 'string') delTx(v); else setDone(ref, false); };
   const open = (type, data = null) => setModal({ type, data });
@@ -104,7 +109,7 @@ export default function App() {
   };
   const doExcel = () => exportExcel(st, rows);
 
-  const ctx = { st, set, bal, rows, upsert, remove, addTx, delTx, setDone, undoRef, open, setPage, setSettings, exportPDF, doExcel, version, update, checkUpdate, lastBackup, lock: () => setLocked(true) };
+  const ctx = { st, set, bal, rows, upsert, remove, addTx, delTx, updateTx, setDone, undoRef, open, setPage, setSettings, setToast, exportPDF, doExcel, version, update, checkUpdate, lastBackup, lock: () => setLocked(true) };
 
   const NAV = [
     ['Pilotage', [['dash', "Vue d'ensemble", LayoutGrid], ['bilan', 'Bilan mensuel', BarChart3], ['proj', 'Projection', LineIc], ['scen', 'Scénarios', FlaskConical], ['goals', 'Objectifs', Target]]],
@@ -140,10 +145,20 @@ export default function App() {
       <main className="main">
         {update && <div className="update-bar"><Sparkles size={16} /><span>Kalis <b>{update.version}</b> est prête à être installée.</span><button className="btn p sm" onClick={() => native.relaunch()}><RefreshCw size={13} />Redémarrer maintenant</button><button className="ib" onClick={() => setUpdate(null)}><X size={15} /></button></div>}
         <Page {...ctx} />
+        {toast && <div className="toast"><CheckCheck size={16} /><span>{toast.msg}</span>{toast.prev && <button onClick={() => { setSt(toast.prev); setToast(null); }}>Annuler</button>}<button className="x" onClick={() => setToast(null)}><X size={14} /></button></div>}
       </main>
 
       {modal?.type === 'confirm' && <ConfirmModal occ={modal.data} st={st} onClose={close} onOk={(m, d, skip, accountId) => { if (skip) setDone(modal.data.ref, true); else addTx({ date: d, label: modal.data.label, kind: modal.data.kind, cat: modal.data.cat, montant: m, goalId: modal.data.goalId, accountId }, modal.data.ref); close(); }} />}
-      {modal?.type === 'tx' && <TxModal init={modal.data} st={st} bal={bal} goals={st.goals} onClose={close} onFav={(f) => set({ favoris: f })} onOk={(list, fav) => { addMany(list); if (fav) set({ favoris: [...st.favoris, fav] }); close(); }} />}
+      {modal?.type === 'tx' && <TxModal init={modal.data} st={st} bal={bal} goals={st.goals.filter(isGoalActive)} onClose={close} onFav={(f) => set({ favoris: f })} onOk={(list, fav) => { if (modal.data?.editId) updateTx(modal.data.editId, list[0]); else { addMany(list); if (fav) set({ favoris: [...st.favoris, fav] }); } close(); }} />}
+      {modal?.type === 'bulk' && <BulkModal list={modal.data} st={st} onClose={close} onOk={(sel) => { const prev = st; sel.forEach((o) => addTx({ date: o.date, label: o.label, kind: o.kind, cat: o.cat, montant: o.amount, goalId: o.goalId, accountId: o.kind === 'save' ? undefined : o.accountId }, o.ref)); setToast({ msg: `${sel.length} échéance${sel.length > 1 ? 's' : ''} validée${sel.length > 1 ? 's' : ''}`, prev }); close(); }} />}
+      {modal?.type === 'goalDone' && <GoalDoneModal g={modal.data} st={st} bal={bal} onClose={close} onOk={({ spend, montant, accountId, cat, label, release }) => {
+        const g = modal.data; const today = todayISO(); const prev = st;
+        if (spend && montant > 0) { addTx({ date: today, label, kind: 'withdraw', cat: 'epargne', montant, goalId: g.id }); addTx({ date: today, label, kind: 'out', cat, montant, accountId }); }
+        if (release > 0) addTx({ date: today, label: `Libération · ${g.nom}`, kind: 'withdraw', cat: 'epargne', montant: release, goalId: g.id });
+        setSt((s) => ({ ...s, goals: s.goals.map((x) => (x.id === g.id ? { ...x, status: g.archive ? 'archive' : 'atteint', doneDate: today } : x)) }));
+        setToast({ msg: g.archive ? `${g.nom} archivé` : `Bravo, objectif ${g.nom} atteint !`, prev }); close();
+      }} />}
+      {modal?.type === 'goalHist' && <GoalHistoryModal g={modal.data} st={st} bal={bal} onClose={close} />}
       {modal?.type === 'account' && <AccountModal a={modal.data} st={st} onClose={close} onOk={(a) => { upsert('accounts', a); close(); }} onDelete={(id) => { remove('accounts', id); close(); }} />}
       {modal?.type === 'pin' && <PinModal onClose={close} onOk={async (p) => { setSettings({ pinHash: await sha('kalis:' + p) }); close(); }} />}
       {modal?.type === 'item' && <ItemModal item={modal.data} goals={st.goals} st={st} onClose={close} onOk={(it) => { upsert('items', it); close(); }} />}
@@ -252,16 +267,13 @@ function OccRow({ o, st, open }) {
 // ================= DASHBOARD =================
 const REP_COLORS = ['#4F46E5', '#0EA5E9', '#10B981', '#F59E0B', '#EC4899', '#8B5CF6', '#64748B', '#14B8A6'];
 function Dashboard({ st, bal, rows, open, setPage }) {
+  const today = todayISO();
   const up = upcoming(st);
-  const inSoon = up.filter((o) => o.kind === 'in').reduce((s, o) => s + o.amount, 0);
-  const outSoon = up.filter((o) => o.kind !== 'in').reduce((s, o) => s + o.amount, 0);
   const cur = mkey(new Date());
   const nk = addMonths(cur, 1);
   const vie = spentVie(st, cur);
   const bt = budgetTotal(st);
-  const over = CATS_VIE.filter((c) => +st.budgets[c] > 0 && spentCat(st, cur, c) > +st.budgets[c]);
-  const neg = rows.find((r) => r.dispo < 0);
-  const late = st.goals.map((g) => ({ g, r: goalReach(rows, g) })).find(({ g, r }) => !r || monthDiff(g.echeance, r.key) > 0);
+  const goalsA = st.goals.filter(isGoalActive);
   const steps = [
     { t: 'Comptes', s: `${fcfa(bal.comptes)} sur Wave, Orange Money, Djamo et Mixx`, done: true, a: ['Gérer', () => setPage('comptes')] },
     { t: 'Revenus et charges', s: 'Salaires, loyer, factures, abonnements…', done: st.items.length > 0, a: ['Ajouter un flux', () => open('item')] },
@@ -269,8 +281,31 @@ function Dashboard({ st, bal, rows, open, setPage }) {
     { t: 'Objectifs', s: 'Ce pour quoi tu épargnes', done: st.goals.length > 0, a: ['Créer un objectif', () => open('goal')] },
   ];
   const onboarding = steps.some((s) => !s.done);
-  const revNext = pending(st, nk).filter((x) => x.kind === 'in').reduce((s, x) => s + x.amount, 0);
-  const nbSrc = new Set(pending(st, nk).filter((x) => x.kind === 'in').map((x) => x.label)).size;
+
+  // Ce mois-ci : réel vs prévu
+  const ms = monthStats(st, cur); const mp = monthPlan(st, cur);
+  const sortiesPrev = mp.charges + mp.vie;
+  // Dépenses récentes
+  const d7 = new Date(Date.now() - 6 * 864e5); const d7iso = `${d7.getFullYear()}-${String(d7.getMonth() + 1).padStart(2, '0')}-${String(d7.getDate()).padStart(2, '0')}`;
+  const outs = st.transactions.filter((t) => t.kind === 'out');
+  const spentToday = outs.filter((t) => t.date === today).reduce((s, t) => s + t.montant, 0);
+  const spent7 = outs.filter((t) => t.date >= d7iso && t.date <= today).reduce((s, t) => s + t.montant, 0);
+  // Prochain salaire
+  const nextSal = upcoming(st, 62).find((o) => o.kind === 'in' && (o.cat === 'salaire' || o.cat === 'pension') && o.date >= today);
+  const daysTo = nextSal ? Math.round((new Date(nextSal.date + 'T12:00:00') - new Date(today + 'T12:00:00')) / 864e5) : null;
+  // Échéances échues (en retard ou aujourd'hui) → validation groupée
+  const due = up.filter((o) => o.date <= today);
+
+  // À surveiller
+  const alerts = [];
+  const neg = rows.find((r) => r.dispo < 0);
+  if (neg) alerts.push({ tone: 'r', icon: AlertTriangle, text: <>Solde disponible négatif en <b>{mLabel(neg.key, true)}</b> ({fcfa(neg.dispo)})</>, act: ['Projection', () => setPage('proj')] });
+  if (due.some((o) => o.late)) alerts.push({ tone: 'o', icon: Clock, text: <><b>{due.filter((o) => o.late).length}</b> échéance{due.filter((o) => o.late).length > 1 ? 's' : ''} en retard non validée{due.filter((o) => o.late).length > 1 ? 's' : ''}</>, act: ['Valider', () => open('bulk', due)] });
+  for (const c of CATS_VIE.filter((c) => +st.budgets[c] > 0 && spentCat(st, cur, c) > +st.budgets[c])) alerts.push({ tone: 'r', icon: Gauge, text: <>Budget <b>{CATS[c]}</b> dépassé de {fmt(spentCat(st, cur, c) - st.budgets[c])} FCFA</>, act: ['Budgets', () => setPage('budgets')] });
+  for (const a of st.accounts.filter((a) => (bal.accounts[a.id] || 0) < 0)) alerts.push({ tone: 'r', icon: Smartphone, text: <>Le compte <b>{a.nom}</b> est négatif ({fmt(bal.accounts[a.id])})</>, act: ['Comptes', () => setPage('comptes')] });
+  for (const g of goalsA) { const r = goalReach(rows, g); if (!r || monthDiff(g.echeance, r.key) > 0) alerts.push({ tone: 'o', icon: Target, text: <><b>{g.nom}</b> : non atteint à l'échéance ({mLabel(g.echeance)})</>, act: ['Objectifs', () => setPage('goals')] }); }
+  for (const g of goalsA.filter((g) => (bal.goals[g.id] || 0) >= g.montant)) alerts.push({ tone: 'g', icon: Trophy, text: <><b>{g.nom}</b> : montant atteint !</>, act: ['Clôturer', () => open('goalDone', g)] });
+  if (st.migratedV3) alerts.push({ tone: 'p', icon: Smartphone, text: <>Répartis ton solde de départ entre tes comptes</>, act: ['Répartir', () => setPage('comptes')] });
 
   const groups = {};
   pending(st, nk).filter((x) => x.kind !== 'in').forEach((x) => { const k = x.kind === 'save' ? 'epargne' : x.cat; groups[k] = (groups[k] || 0) + x.amount; });
@@ -278,11 +313,20 @@ function Dashboard({ st, bal, rows, open, setPage }) {
   const rep = Object.entries(groups).sort((a, b) => b[1] - a[1]).map(([k, v], i) => ({ k, v, c: REP_COLORS[i % REP_COLORS.length] }));
   const repTot = rep.reduce((s, x) => s + x.v, 0);
   const hr = new Date().getHours();
+  const Prog = ({ label, real, plan, color, inverse }) => {
+    const p = plan > 0 ? real / plan : 0; const bad = inverse ? p > 1 : false;
+    return (
+      <div className="mprog">
+        <div className="mprog-h"><span>{label}</span><span className="num"><b>{fmt(real)}</b> <span className="muted">/ {fmt(plan)}</span></span></div>
+        <div className="bar" style={{ height: 7 }}><i style={{ width: Math.min(100, p * 100) + '%', background: bad ? 'var(--neg)' : color }} /></div>
+      </div>
+    );
+  };
 
   return (
     <>
       <Top title={`${hr >= 5 && hr < 18 ? 'Bonjour' : 'Bonsoir'} Paul`} sub={new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).replace(/^./, (c) => c.toUpperCase())}>
-        <button className="btn s" onClick={() => setPage('proj')}><LineIc size={15} />Projection</button>
+        <button className="btn s" onClick={() => open('tx', { kind: 'move' })}><ArrowLeftRight size={15} />Virement</button>
         <button className="btn p" onClick={() => open('tx')}><Plus size={16} />Nouvelle opération</button>
       </Top>
       <div className="content">
@@ -297,11 +341,6 @@ function Dashboard({ st, bal, rows, open, setPage }) {
             </div>
           </div>
         )}
-        {neg ? <div className="alert warn"><div className="chip-ic"><AlertTriangle size={16} /></div><div>Le solde disponible devient négatif en <b>{mLabel(neg.key, true)}</b> ({fcfa(neg.dispo)}). Revois ton budget ou ton épargne programmée.</div></div>
-          : late ? <div className="alert warn"><div className="chip-ic"><AlertTriangle size={16} /></div><div>L'objectif <b>{late.g.nom}</b> n'est pas atteint à l'échéance ({mLabel(late.g.echeance, true)}) avec l'épargne programmée actuelle.</div></div>
-          : st.goals.length > 0 ? <div className="alert info"><div className="chip-ic"><Check size={16} /></div><div>Tous tes objectifs sont atteints à temps et ton solde reste positif sur toute la période.</div></div> : null}
-        {st.migratedV3 && <div className="alert info"><div className="chip-ic"><Smartphone size={16} /></div><div style={{ flex: 1 }}>Nouveau : tes comptes Wave, Orange Money, Djamo et Mixx. Ton solde de départ est sur Wave pour l'instant : répartis-le.</div><button className="btn p sm" onClick={() => setPage('comptes')}>Répartir</button></div>}
-        {over.length > 0 && <div className="alert warn"><div className="chip-ic"><Gauge size={16} /></div><div style={{ flex: 1 }}>Budget dépassé ce mois-ci : <b>{over.map((c) => CATS[c]).join(', ')}</b>.</div><button className="btn s sm" onClick={() => setPage('budgets')}>Voir</button></div>}
 
         <div className="grid gh">
           <div className="card kpi hero">
@@ -309,15 +348,14 @@ function Dashboard({ st, bal, rows, open, setPage }) {
             <div className="kv">{fmt(bal.dispo)}<small>FCFA</small></div>
             <Spark values={rows.map((r) => r.dispo)} />
             <div className="hero-stats">
+              <div>Sur les comptes<b>{fmt(bal.comptes)}</b></div>
               <div>Épargne affectée<b>{fmt(bal.epargne)}</b></div>
-              <div>Entrées · 35 j<b>{fmt(inSoon)}</b></div>
-              <div>Sorties · 35 j<b>{fmt(outSoon)}</b></div>
+              <div>Patrimoine<b>{fmt(bal.total)}</b></div>
             </div>
           </div>
-          <Kpi icon={ArrowDownLeft} tone="g" k={`Revenus · ${mLabel(nk, true)}`} v={<>{fmt(revNext)}<small>FCFA</small></>}
-            f={<div style={{ display: 'flex', justifyContent: 'space-between' }}><span>{nbSrc} source{nbSrc > 1 ? 's' : ''}</span>{revNext > 0 && <span className="badge ok" style={{ margin: 0 }}>prévu</span>}</div>}>
-            <div className="bar" style={{ marginTop: 12, height: 6 }}><i style={{ width: revNext ? Math.max(0, Math.min(100, (1 - (repTot / revNext)) * 100)) + '%' : 0, background: 'var(--pos)' }} /></div>
-            {revNext > 0 && <div className="f">Reste après sorties : <b style={{ color: 'var(--ink)' }}>{fmt(revNext - repTot)}</b></div>}
+          <Kpi icon={ArrowUpRight} tone="r" k="Dépenses" v={<>{fmt(spentToday)}<small>aujourd'hui</small></>}
+            f={<div className="mini-stats"><span>7 jours <b>{fmt(spent7)}</b></span><span>{mLabel(cur, true)} <b>{fmt(ms.sorties)}</b></span></div>}>
+            <button className="btn s sm" style={{ marginTop: 12 }} onClick={() => open('tx')}><Plus size={13} />Ajouter une dépense</button>
           </Kpi>
           <Kpi icon={Gauge} tone="o" k={`Budgets · ${mLabel(cur, true)}`}
             v={bt ? <>{fmt(Math.max(0, bt - vie))}<small>restants</small></> : <span className="muted" style={{ fontSize: 17, fontWeight: 600 }}>Non défini</span>}
@@ -332,15 +370,41 @@ function Dashboard({ st, bal, rows, open, setPage }) {
               <span className="acc-badge sm" style={{ background: a.couleur }}>{a.nom.slice(0, 1)}</span>
               <span><span className="muted" style={{ fontSize: 12 }}>{a.nom}</span><b className={'num' + ((bal.accounts[a.id] || 0) < 0 ? ' neg' : '')}>{fmt(bal.accounts[a.id] || 0)}</b></span>
             </button>))}
-          <button className="acc-mini add" onClick={() => open('tx', { kind: 'move' })}><ArrowLeftRight size={16} /><span>Virement</span></button>
+        </div>
+
+        <div className="grid g21 mt">
+          <Card title={`Ce mois-ci · ${mLabel(cur, true)}`} sub="Réel comparé au prévu" action={<button className="btn s sm" onClick={() => setPage('bilan')}>Bilan</button>}>
+            <div className="month-grid">
+              <div>
+                <Prog label="Entrées reçues" real={ms.entrees} plan={mp.entrees} color="var(--pos)" />
+                <Prog label="Dépenses" real={ms.sorties} plan={sortiesPrev} color="var(--warn)" inverse />
+                <Prog label="Épargne objectifs" real={ms.epargne} plan={mp.epargne} color="var(--sky)" />
+              </div>
+              <div className="month-side">
+                <div className="ms-box"><div className="k">Solde du mois</div><div className={'v num ' + (ms.solde >= 0 ? 'pos' : 'neg')}>{ms.solde >= 0 ? '+' : '−'}{fmt(Math.abs(ms.solde))}</div><div className="k">{ms.taux == null ? 'Aucune entrée encore' : `Taux d'épargne ${Math.round(ms.taux * 100)} %`}</div></div>
+                <div className="ms-box">
+                  <div className="k"><Banknote size={13} style={{ verticalAlign: -2 }} /> Prochain salaire</div>
+                  {nextSal ? <><div className="v num">{fmt(nextSal.amount)}</div><div className="k">{nextSal.label} · {daysTo === 0 ? "aujourd'hui" : daysTo === 1 ? 'demain' : `dans ${daysTo} jours`}</div></> : <div className="k" style={{ marginTop: 6 }}>Aucun salaire prévu</div>}
+                </div>
+              </div>
+            </div>
+          </Card>
+          <Card title="À surveiller" sub={alerts.length ? `${alerts.length} point${alerts.length > 1 ? 's' : ''}` : 'Rien à signaler'} flush>
+            {alerts.length ? alerts.slice(0, 6).map((a, i) => (
+              <div className="row alert-row" key={i}>
+                <div className={'chip-ic ' + a.tone} style={{ width: 30, height: 30 }}><a.icon size={15} /></div>
+                <div style={{ flex: 1, minWidth: 0, fontSize: 13 }}>{a.text}</div>
+                <button className="btn s sm" onClick={a.act[1]}>{a.act[0]}</button>
+              </div>)) : <Empty icon={ShieldCheck} title="Tout est en ordre" text="Solde positif, budgets respectés et objectifs dans les temps." />}
+          </Card>
         </div>
 
         <div className="grid g21 mt">
           <Card title="Trajectoire" sub={`Jusqu'en ${mLabel(rows[rows.length - 1].key, true)}`} action={<div className="legend"><span><i style={{ background: 'var(--primary)' }} />Disponible</span><span><i style={{ background: 'var(--sky)' }} />Épargne</span></div>}>
             <TrendChart rows={rows} h={270} />
           </Card>
-          <Card title="Objectifs" sub={`${st.goals.length} actif${st.goals.length > 1 ? 's' : ''}`} action={<button className="btn s sm" onClick={() => setPage('goals')}>Voir tout</button>} flush>
-            {st.goals.length ? st.goals.slice(0, 4).map((g) => {
+          <Card title="Objectifs" sub={`${goalsA.length} actif${goalsA.length > 1 ? 's' : ''}`} action={<button className="btn s sm" onClick={() => setPage('goals')}>Voir tout</button>} flush>
+            {goalsA.length ? goalsA.slice(0, 4).map((g) => {
               const v = bal.goals[g.id] || 0; const r = goalReach(rows, g); const ok = r && monthDiff(g.echeance, r.key) <= 0;
               return (
                 <div className="gline" key={g.id}>
@@ -348,15 +412,15 @@ function Dashboard({ st, bal, rows, open, setPage }) {
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontWeight: 650 }}>{g.nom}</div>
                     <div className="muted num" style={{ fontSize: 12.5 }}>{fmt(v)} / {fmt(g.montant)} FCFA</div>
-                    <div style={{ fontSize: 12.5, fontWeight: 600, color: ok ? 'var(--pos)' : 'var(--neg)' }}>{r ? `Atteint ${mLabel(r.key)}` : 'Non atteint'}</div>
+                    <div style={{ fontSize: 12.5, fontWeight: 600, color: ok ? 'var(--pos)' : 'var(--neg)' }}>{v >= g.montant ? 'Montant atteint' : r ? `Atteint ${mLabel(r.key)}` : 'Non atteint'}</div>
                   </div>
                 </div>);
-            }) : <Empty icon={Target} title="Aucun objectif" text="Crée ton premier objectif d'épargne." action={<button className="btn p sm" onClick={() => open('goal')}><Plus size={14} />Créer</button>} />}
+            }) : <Empty icon={Target} title="Aucun objectif actif" text="Crée un objectif d'épargne." action={<button className="btn p sm" onClick={() => open('goal')}><Plus size={14} />Créer</button>} />}
           </Card>
         </div>
 
         <div className="grid g21 mt">
-          <Card title="Échéances à venir" sub="Valide chaque mouvement quand il a lieu" flush action={up.length > 0 && <span className="badge p">{up.length}</span>}>
+          <Card title="Échéances à venir" sub="Valide chaque mouvement quand il a lieu" flush action={due.length > 0 ? <button className="btn p sm" onClick={() => open('bulk', due)}><CheckCheck size={14} />Valider les échues ({due.length})</button> : up.length > 0 && <span className="badge p">{up.length}</span>}>
             {up.length ? up.slice(0, 8).map((o) => <OccRow key={o.ref} o={o} st={st} open={open} />) : <Empty icon={CalendarDays} title="Aucune échéance" text="Les flux, tontines et créances que tu ajoutes apparaîtront ici." />}
           </Card>
           <Card title="Répartition des sorties" sub={mLabel(nk, true).replace(/^./, (c) => c.toUpperCase())}>
@@ -427,7 +491,7 @@ function Projection({ st, set, rows, exportPDF, doExcel }) {
 }
 
 // ================= OBJECTIFS =================
-function Goals({ st, bal, rows, open, remove, addTx }) {
+function Goals({ st, bal, rows, open, remove, addTx, upsert }) {
   const c = useC(); const axis = axisOf(c);
   const cur = mkey(new Date());
   const [fund, setFund] = useState(null);
@@ -440,7 +504,7 @@ function Goals({ st, bal, rows, open, remove, addTx }) {
         {!st.goals.length ? <div className="card"><Empty icon={Target} title="Aucun objectif pour l'instant" text="Définis un montant cible et une échéance, puis programme une épargne mensuelle." action={<button className="btn p" onClick={() => open('goal')}><Plus size={16} />Créer un objectif</button>} /></div> : (
           <>
             <div className="grid g3 goals-grid">
-              {st.goals.map((g) => {
+              {st.goals.filter(isGoalActive).map((g) => {
                 const v = bal.goals[g.id] || 0; const reste = Math.max(0, g.montant - v);
                 const mois = Math.max(1, monthDiff(cur, g.echeance) + 1); const r = goalReach(rows, g);
                 const ok = r && monthDiff(g.echeance, r.key) <= 0;
@@ -452,7 +516,7 @@ function Goals({ st, bal, rows, open, remove, addTx }) {
                       <Ring pct={v / g.montant} color={g.couleur} size={84} stroke={8} />
                       <div style={{ flex: 1, minWidth: 0 }}><div className="goal-n">{g.nom}</div><div className="muted" style={{ fontSize: 12.5, marginTop: 1 }}>Échéance {mLabel(g.echeance, true)}</div>
                         <div className="goal-v">{fmt(v)}</div><div className="muted num" style={{ fontSize: 12.5 }}>sur {fmt(g.montant)} FCFA</div></div>
-                      <div style={{ display: 'flex', alignSelf: 'flex-start' }}><button className="ib" onClick={() => open('goal', g)}><Pencil size={15} /></button><button className="ib" onClick={() => { if (window.confirm(`Supprimer l'objectif « ${g.nom} » ?`)) remove('goals', g.id); }}><Trash2 size={15} /></button></div>
+                      <div style={{ display: 'flex', alignSelf: 'flex-start' }}><button className="ib" onClick={() => open('goal', g)}><Pencil size={15} /></button><button className="ib" title="Historique" onClick={() => open('goalHist', g)}><History size={15} /></button><button className="ib" title="Supprimer" onClick={() => remove('goals', g.id)}><Trash2 size={15} /></button></div>
                     </div>
                     <div className="meta">
                       <div><div className="k">Reste</div><div className="v">{fmt(reste)}</div></div>
@@ -467,20 +531,37 @@ function Goals({ st, bal, rows, open, remove, addTx }) {
                       <button className="btn s sm" disabled={v <= 0} onClick={() => setFund({ goal: g, kind: 'withdraw', montant: '', date: todayISO() })}>Retirer</button>
                       <button className="btn s sm" disabled={v <= 0} onClick={() => setXfer({ from: g.id, to: 'dispo' })}>Transférer</button>
                     </div>
+                    <div className="goal-foot">
+                      <button className={'btn sm ' + (v >= g.montant ? 'p' : 's')} onClick={() => open('goalDone', g)}><Trophy size={14} />{v >= g.montant ? 'Objectif atteint !' : 'Marquer atteint'}</button>
+                      <button className="btn s sm" onClick={() => open('goalDone', { ...g, archive: true })}><Archive size={14} />Archiver</button>
+                    </div>
                   </div>);
               })}
             </div>
-            <Card title="Progression projetée" style={{ marginTop: 16 }} action={<div className="legend">{st.goals.map((g) => <span key={g.id}><i style={{ background: g.couleur }} />{g.nom}</span>)}</div>}>
+            {st.goals.some((g) => !isGoalActive(g)) && (
+              <Card title="Atteints et archivés" style={{ marginTop: 16 }} flush>
+                {st.goals.filter((g) => !isGoalActive(g)).map((g) => (
+                  <div className="row" key={g.id}>
+                    <div className={'chip-ic ' + (g.status === 'atteint' ? 'g' : 'p')} style={{ width: 34, height: 34 }}>{g.status === 'atteint' ? <Trophy size={16} /> : <Archive size={16} />}</div>
+                    <div style={{ minWidth: 0 }}><div className="t">{g.nom}</div><div className="s">{g.status === 'atteint' ? 'Atteint' : 'Archivé'}{g.doneDate ? ` le ${dLabel(g.doneDate)}` : ''} · objectif {fmt(g.montant)} FCFA{(bal.goals[g.id] || 0) > 0 ? ` · ${fmt(bal.goals[g.id])} encore de côté` : ''}</div></div>
+                    <div style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
+                      <button className="ib" title="Historique" onClick={() => open('goalHist', g)}><History size={15} /></button>
+                      <button className="ib" title="Réactiver" onClick={() => upsert('goals', { ...g, status: 'actif', doneDate: undefined })}><ArchiveRestore size={15} /></button>
+                      <button className="ib" title="Supprimer" onClick={() => remove('goals', g.id)}><Trash2 size={15} /></button>
+                    </div>
+                  </div>))}
+              </Card>)}
+            {st.goals.some(isGoalActive) && <Card title="Progression projetée" style={{ marginTop: 16 }} action={<div className="legend">{st.goals.filter(isGoalActive).map((g) => <span key={g.id}><i style={{ background: g.couleur }} />{g.nom}</span>)}</div>}>
               <div style={{ height: 300 }}>
                 <ResponsiveContainer>
                   <LineChart data={data} margin={{ top: 6, right: 24, left: 0, bottom: 0 }}>
                     <CartesianGrid stroke={c.grid} strokeDasharray="3 4" vertical={false} /><XAxis dataKey="label" interval={data.length > 14 ? 1 : 0} {...axis} /><YAxis tickFormatter={short} width={56} {...axis} /><Tooltip content={<Tip />} />
-                    {st.goals.map((g) => <ReferenceLine key={'r' + g.id} y={+g.montant} stroke={g.couleur} strokeDasharray="4 4" strokeOpacity={.6} />)}
-                    {st.goals.map((g) => <Line key={g.id} type="monotone" dataKey={g.id} name={g.nom} stroke={g.couleur} strokeWidth={2.4} dot={false} animationDuration={500} />)}
+                    {st.goals.filter(isGoalActive).map((g) => <ReferenceLine key={'r' + g.id} y={+g.montant} stroke={g.couleur} strokeDasharray="4 4" strokeOpacity={.6} />)}
+                    {st.goals.filter(isGoalActive).map((g) => <Line key={g.id} type="monotone" dataKey={g.id} name={g.nom} stroke={g.couleur} strokeWidth={2.4} dot={false} animationDuration={500} />)}
                   </LineChart>
                 </ResponsiveContainer>
               </div>
-            </Card>
+            </Card>}
           </>
         )}
       </div>
@@ -621,10 +702,19 @@ function Operations({ st, open, delTx, doExcel }) {
   const [f, setF] = useState('all');
   const [m, setM] = useState(mkey(new Date()));
   const [acc, setAcc] = useState('all');
+  const [q, setQ] = useState('');
+  const [cat, setCat] = useState('all');
   const accOf = (t) => t.accountId || st.accounts[0]?.id;
-  const inM = st.transactions.filter((t) => t.date.startsWith(m) && (acc === 'all' || accOf(t) === acc || t.toAccountId === acc));
-  const list = inM.filter((t) => f === 'all' || (f === 'in' ? t.kind === 'in' : f === 'out' ? t.kind === 'out' : f === 'move' ? t.kind === 'move' : t.kind === 'save' || t.kind === 'withdraw')).sort((a, b) => b.date.localeCompare(a.date));
-  const sum = (k) => inM.filter((t) => t.kind === k).reduce((s, t) => s + t.montant, 0);
+  const norm = (x) => String(x || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const qq = norm(q.trim());
+  const match = (t) => !qq || norm(`${t.label} ${CATS[t.cat] || ''} ${t.montant} ${fmt(t.montant)} ${accName(st, accOf(t))} ${t.goalId ? gname(st, t.goalId) : ''}`).includes(qq);
+  const inM = st.transactions.filter((t) => (qq ? true : t.date.startsWith(m)) && (acc === 'all' || accOf(t) === acc || t.toAccountId === acc));
+  const list = inM.filter((t) => f === 'all' || (f === 'in' ? t.kind === 'in' : f === 'out' ? t.kind === 'out' : f === 'move' ? t.kind === 'move' : t.kind === 'save' || t.kind === 'withdraw'))
+    .filter((t) => cat === 'all' || t.cat === cat).filter(match).sort((a, b) => b.date.localeCompare(a.date));
+  const catsHere = [...new Set(st.transactions.filter((t) => t.kind === 'in' || t.kind === 'out').map((t) => t.cat))].filter((c) => CATS[c]);
+  const tot = list.reduce((s2, t) => s2 + (t.kind === 'in' ? t.montant : t.kind === 'out' ? -t.montant : 0), 0);
+  const monthTx = st.transactions.filter((t) => t.date.startsWith(m) && (acc === 'all' || accOf(t) === acc || t.toAccountId === acc));
+  const sum = (k) => monthTx.filter((t) => t.kind === k).reduce((s, t) => s + t.montant, 0);
   return (
     <>
       <Top title="Opérations" sub="Mouvements enregistrés · Ctrl+N pour saisir"><button className="btn s" onClick={doExcel}><FileSpreadsheet size={15} />Excel</button><button className="btn s" onClick={() => open('tx', { kind: 'move' })}><ArrowLeftRight size={15} />Virement</button><button className="btn p" onClick={() => open('tx')}><Plus size={16} />Nouvelle opération</button></Top>
@@ -636,20 +726,25 @@ function Operations({ st, open, delTx, doExcel }) {
         </div>
         <div className="card mt tbl" style={{ overflow: 'hidden' }}>
           <div className="card-h">
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><button className="btn s sm" onClick={() => setM(addMonths(m, -1))}>‹</button><b style={{ minWidth: 120, textAlign: 'center', textTransform: 'capitalize' }}>{mLabel(m, true)}</b><button className="btn s sm" onClick={() => setM(addMonths(m, 1))}>›</button></div>
-            <div style={{ display: 'flex', gap: 8 }}><select className="inp" style={{ width: 170, padding: '7px 10px' }} value={acc} onChange={(e) => setAcc(e.target.value)}><option value="all">Tous les comptes</option>{st.accounts.map((a) => <option key={a.id} value={a.id}>{a.nom}</option>)}</select>
-            <div className="seg">{[['all', 'Tout'], ['in', 'Entrées'], ['out', 'Dépenses'], ['save', 'Épargne'], ['move', 'Virements']].map(([k, l]) => <button key={k} className={f === k ? 'on' : ''} onClick={() => setF(k)}>{l}</button>)}</div></div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', opacity: qq ? 0.4 : 1 }}><button className="btn s sm" onClick={() => setM(addMonths(m, -1))}>‹</button><b style={{ minWidth: 120, textAlign: 'center', textTransform: 'capitalize' }}>{qq ? 'Toute la période' : mLabel(m, true)}</b><button className="btn s sm" onClick={() => setM(addMonths(m, 1))}>›</button></div>
+            <div className="search"><Search size={15} /><input placeholder="Rechercher (libellé, montant, compte…)" value={q} onChange={(e) => setQ(e.target.value)} />{q && <button className="ib" onClick={() => setQ('')}><X size={13} /></button>}</div>
           </div>
+          <div className="card-h" style={{ paddingTop: 12 }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><select className="inp" style={{ width: 170, padding: '7px 10px' }} value={acc} onChange={(e) => setAcc(e.target.value)}><option value="all">Tous les comptes</option>{st.accounts.map((a) => <option key={a.id} value={a.id}>{a.nom}</option>)}</select>
+            <select className="inp" style={{ width: 180, padding: '7px 10px' }} value={cat} onChange={(e) => setCat(e.target.value)}><option value="all">Toutes les catégories</option>{catsHere.map((c) => <option key={c} value={c}>{CATS[c]}</option>)}</select></div>
+            <div className="seg">{[['all', 'Tout'], ['in', 'Entrées'], ['out', 'Dépenses'], ['save', 'Épargne'], ['move', 'Virements']].map(([k, l]) => <button key={k} className={f === k ? 'on' : ''} onClick={() => setF(k)}>{l}</button>)}</div>
+          </div>
+          {(qq || cat !== 'all') && <div className="muted" style={{ padding: '0 22px 12px', fontSize: 12.5 }}>{list.length} résultat{list.length > 1 ? 's' : ''} · solde {tot >= 0 ? '+' : '−'}{fmt(Math.abs(tot))} FCFA</div>}
           {list.length ? (
             <table>
               <thead><tr><th>Date</th><th style={{ textAlign: 'left' }}>Libellé</th><th style={{ textAlign: 'left' }}>Catégorie</th><th style={{ textAlign: 'left' }}>Compte</th><th>Montant</th><th></th></tr></thead>
               <tbody>{list.map((t) => (
-                <tr key={t.id}><td className="muted">{dLabel(t.date)}</td><td style={{ textAlign: 'left', fontWeight: 500 }}>{t.label}</td>
+                <tr key={t.id} className="clickable" onDoubleClick={() => open('tx', { ...t, editId: t.id, montant: String(t.montant) })}><td className="muted">{dLabel(t.date)}</td><td style={{ textAlign: 'left', fontWeight: 500 }}>{t.label}</td>
                   <td style={{ textAlign: 'left' }} className="muted">{t.kind === 'move' ? 'Virement' : t.goalId ? gname(st, t.goalId) || 'Objectif supprimé' : CATS[t.cat]}</td>
                   <td style={{ textAlign: 'left' }}>{t.kind === 'save' || t.kind === 'withdraw' ? <span className="muted">—</span> : <span className="acc-tag"><i style={{ background: (st.accounts.find((a) => a.id === accOf(t)) || {}).couleur }} />{accName(st, accOf(t))}{t.kind === 'move' && <> → <i style={{ background: (st.accounts.find((a) => a.id === t.toAccountId) || {}).couleur }} />{accName(st, t.toAccountId)}</>}</span>}</td>
                   <td style={{ fontWeight: 600 }} className={tone(t.kind)}>{sign(t.kind)} {fmt(t.montant)}</td>
-                  <td style={{ width: 50 }}><button className="ib" title={t.ref ? 'Annuler la validation' : 'Supprimer'} onClick={() => delTx(t.id)}>{t.ref ? <Undo2 size={15} /> : <Trash2 size={15} />}</button></td></tr>))}</tbody>
-            </table>) : <Empty icon={List} title="Aucune opération ce mois" text="Valide tes échéances ou ajoute une opération." />}
+                  <td style={{ width: 80 }}><div style={{ display: 'flex', justifyContent: 'flex-end' }}><button className="ib" title="Modifier" onClick={() => open('tx', { ...t, editId: t.id, montant: String(t.montant) })}><Pencil size={15} /></button><button className="ib" title={t.ref ? 'Annuler la validation' : 'Supprimer'} onClick={() => delTx(t.id)}>{t.ref ? <Undo2 size={15} /> : <Trash2 size={15} />}</button></div></td></tr>))}</tbody>
+            </table>) : <Empty icon={qq ? Search : List} title={qq ? 'Aucun résultat' : 'Aucune opération ce mois'} text={qq ? 'Essaie un autre mot ou un montant.' : 'Valide tes échéances ou ajoute une opération.'} />}
         </div>
       </div>
     </>
@@ -823,12 +918,12 @@ function TxModal({ init, st, bal, goals, onClose, onOk, onFav }) {
     onOk([tx], fav ? { id: uid(), label, kind: t.kind, cat: tx.cat, montant: m, accountId: t.accountId, goalId: tx.goalId } : null);
   };
   return (
-    <Modal title={isM ? 'Virement entre comptes' : 'Nouvelle opération'} onClose={onClose} onEnter={submit}
+    <Modal title={init?.editId ? "Modifier l'opération" : isM ? 'Virement entre comptes' : 'Nouvelle opération'} onClose={onClose} onEnter={submit}
       footer={<><span className="muted" style={{ fontSize: 12, marginRight: 'auto' }}><Keyboard size={12} style={{ verticalAlign: -2 }} /> Entrée pour enregistrer</span><button className="btn s" onClick={onClose}>Annuler</button><button className="btn p" disabled={!ok} onClick={submit}>Enregistrer</button></>}>
       <div className="seg" style={{ display: 'flex', marginBottom: 14 }}>
         {[['out', 'Dépense', 'alimentation'], ['in', 'Entrée', 'salaire'], ['move', 'Virement'], ['save', 'Épargne'], ['withdraw', 'Retrait']].map(([k, l, c]) => <button key={k} style={{ flex: 1 }} className={t.kind === k ? 'on' : ''} onClick={() => u({ kind: k, cat: c || t.cat })}>{l}</button>)}
       </div>
-      {favs.length > 0 && !isM && (
+      {favs.length > 0 && !isM && !init?.editId && (
         <div className="favs"><Star size={13} />{favs.map((f) => (
           <span key={f.id} className="fav"><button onClick={() => u({ kind: f.kind, cat: f.cat, label: f.label, montant: String(f.montant), accountId: f.accountId || t.accountId, goalId: f.goalId || t.goalId })}>{f.label} · {short(f.montant)}</button><button className="x" title="Retirer des favoris" onClick={() => onFav(st.favoris.filter((x) => x.id !== f.id))}><X size={11} /></button></span>))}</div>)}
       <div className="form f2">
@@ -846,7 +941,7 @@ function TxModal({ init, st, bal, goals, onClose, onOk, onFav }) {
           {!isG && <Field label={t.kind === 'in' ? 'Reçu sur' : 'Payé depuis'} span><AccPicker st={st} value={t.accountId} onChange={(v) => u({ accountId: v })} /></Field>}
         </>)}
       </div>
-      {!isM && <label className="switch" style={{ marginTop: 14 }}><input type="checkbox" checked={fav} onChange={(e) => setFav(e.target.checked)} /><Star size={13} />Ajouter aux favoris pour la saisie rapide</label>}
+      {!isM && !init?.editId && <label className="switch" style={{ marginTop: 14 }}><input type="checkbox" checked={fav} onChange={(e) => setFav(e.target.checked)} /><Star size={13} />Ajouter aux favoris pour la saisie rapide</label>}
     </Modal>
   );
 }
@@ -1159,7 +1254,7 @@ function Scenarios({ st, set, rows }) {
                   <div className="grid g3">
                     <Kpi icon={Wallet} k="Solde fin de période" v={<span className={lastS.dispo < 0 ? 'neg' : ''}>{fmt(lastS.dispo)}</span>} f={<>Actuel : {fmt(lastA.dispo)} <b className={lastS.dispo - lastA.dispo >= 0 ? 'pos' : 'neg'}>({lastS.dispo - lastA.dispo >= 0 ? '+' : ''}{short(lastS.dispo - lastA.dispo)})</b></>} />
                     <Kpi icon={AlertTriangle} tone={minS.dispo < 0 ? 'r' : 'o'} k="Point bas" v={<span className={minS.dispo < 0 ? 'neg' : ''}>{fmt(minS.dispo)}</span>} f={mLabel(minS.key, true)} />
-                    <Kpi icon={Target} tone="s" k="Objectifs" v={`${st.goals.filter((g) => { const r = goalReach(simRows, g); return r && monthDiff(g.echeance, r.key) <= 0; }).length} / ${st.goals.length}`} f="atteints à temps" />
+                    <Kpi icon={Target} tone="s" k="Objectifs" v={`${st.goals.filter(isGoalActive).filter((g) => { const r = goalReach(simRows, g); return r && monthDiff(g.echeance, r.key) <= 0; }).length} / ${st.goals.filter(isGoalActive).length}`} f="atteints à temps" />
                   </div>
                   <Card title="Solde disponible : actuel et scénario" style={{ marginTop: 16 }} action={<div className="legend"><span><i style={{ background: c.axis }} />Actuel</span><span><i style={{ background: 'var(--primary)' }} />{sc.nom}</span></div>}>
                     <div style={{ height: 300 }}><ResponsiveContainer><LineChart data={data} margin={{ top: 6, right: 24, left: 0, bottom: 0 }}>
@@ -1169,8 +1264,8 @@ function Scenarios({ st, set, rows }) {
                       <Line type="monotone" dataKey="Scénario" name={sc.nom} stroke={c.primary} strokeWidth={2.6} dot={false} animationDuration={400} />
                     </LineChart></ResponsiveContainer></div>
                   </Card>
-                  {st.goals.length > 0 && <Card title="Objectifs dans ce scénario" style={{ marginTop: 16 }} flush>
-                    {st.goals.map((g) => { const a = goalReach(rows, g); const b = goalReach(simRows, g); return (
+                  {st.goals.some(isGoalActive) && <Card title="Objectifs dans ce scénario" style={{ marginTop: 16 }} flush>
+                    {st.goals.filter(isGoalActive).map((g) => { const a = goalReach(rows, g); const b = goalReach(simRows, g); return (
                       <div className="row" key={g.id}><span className="goal-dot" style={{ width: 10, height: 10, borderRadius: 3, background: g.couleur }} /><div className="t">{g.nom}</div>
                         <div className="a muted" style={{ fontWeight: 500 }}>Actuel : {a ? mLabel(a.key) : 'non atteint'} → <b style={{ color: b && monthDiff(g.echeance, b.key) <= 0 ? 'var(--pos)' : 'var(--neg)' }}>{b ? mLabel(b.key) : 'non atteint'}</b></div></div>); })}
                   </Card>}
@@ -1256,4 +1351,107 @@ async function exportExcel(st, rows) {
   const name = `Kalis-${todayISO()}.xlsx`;
   if (native) return native.saveFile(name, toB64(u8), [{ name: 'Excel', extensions: ['xlsx'] }]);
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([u8])); a.download = name; a.click(); return name;
+}
+
+// =====================================================================
+// ================= VALIDATION GROUPÉE DES ÉCHÉANCES ==================
+// =====================================================================
+function BulkModal({ list, st, onClose, onOk }) {
+  const [rows, setRows] = useState(() => list.map((o) => ({ ...o, on: true, montant: String(Math.round(o.amount)), accountId: o.src?.accountId || st.accounts[0]?.id })));
+  const u = (i, p) => setRows((r) => r.map((x, j) => (j === i ? { ...x, ...p } : x)));
+  const sel = rows.filter((r) => r.on && +r.montant > 0);
+  const net = sel.reduce((s, r) => s + (r.kind === 'in' ? +r.montant : -r.montant), 0);
+  return (
+    <Modal title="Valider les échéances échues" onClose={onClose}
+      footer={<><span className="muted" style={{ fontSize: 12.5, marginRight: 'auto' }}>{sel.length} sélectionnée{sel.length > 1 ? 's' : ''} · impact {net >= 0 ? '+' : '−'}{fmt(Math.abs(net))} FCFA</span><button className="btn s" onClick={onClose}>Annuler</button><button className="btn p" disabled={!sel.length} onClick={() => onOk(sel.map((r) => ({ ...r, amount: +r.montant })))}><CheckCheck size={15} />Valider</button></>}>
+      <div className="muted" style={{ fontSize: 13, marginBottom: 12 }}>Ajuste les montants réels si besoin, décoche ce qui n'a pas encore eu lieu.</div>
+      <div className="bulk-list">
+        {rows.map((r, i) => (
+          <div className={'bulk-row' + (r.on ? '' : ' off')} key={r.ref}>
+            <input type="checkbox" checked={r.on} onChange={(e) => u(i, { on: e.target.checked })} />
+            <DChip iso={r.date} late={r.late} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div className="t" style={{ fontWeight: 550, fontSize: 13.5 }}>{r.label}</div>
+              {r.kind !== 'save' && <select className="inp acc-sel" value={r.accountId} disabled={!r.on} onChange={(e) => u(i, { accountId: e.target.value })}>{st.accounts.map((a) => <option key={a.id} value={a.id}>{r.kind === 'in' ? 'Reçu sur ' : 'Payé depuis '}{a.nom}</option>)}</select>}
+            </div>
+            <span className={tone(r.kind)} style={{ fontWeight: 650 }}>{sign(r.kind)}</span>
+            <input className="inp num" style={{ width: 120, textAlign: 'right' }} type="number" disabled={!r.on} value={r.montant} onChange={(e) => u(i, { montant: e.target.value })} />
+          </div>))}
+      </div>
+    </Modal>
+  );
+}
+
+// =====================================================================
+// ================= OBJECTIF ATTEINT / ARCHIVÉ ========================
+// =====================================================================
+function GoalDoneModal({ g, st, bal, onClose, onOk }) {
+  const v = Math.max(0, bal.goals[g.id] || 0);
+  const archive = !!g.archive;
+  const [spend, setSpend] = useState(!archive && v > 0);
+  const [montant, setMontant] = useState(String(v));
+  const [accountId, setAcc] = useState(st.accounts[0]?.id);
+  const [cat, setCat] = useState('autre');
+  const [label, setLabel] = useState(`Achat · ${g.nom}`);
+  const [release, setRelease] = useState(v > 0);
+  const rest = Math.max(0, v - (spend ? +montant || 0 : 0));
+  const ok = !spend || (+montant > 0 && +montant <= v);
+  return (
+    <Modal title={archive ? `Archiver · ${g.nom}` : `Objectif atteint · ${g.nom}`} onClose={onClose}
+      footer={<><button className="btn s" onClick={onClose}>Annuler</button><button className="btn p" disabled={!ok} onClick={() => onOk({ spend: !archive && spend, montant: +montant, accountId, cat, label, release: archive ? (release ? v : 0) : (spend && release ? rest : 0) })}>{archive ? <><Archive size={15} />Archiver</> : <><Trophy size={15} />Valider</>}</button></>}>
+      {!archive && (
+        <div className="goal-done-hero">
+          <Trophy size={28} />
+          <div><b>{fmt(v)} FCFA</b> épargnés sur {fmt(g.montant)} FCFA{v >= g.montant ? ' : objectif rempli.' : '.'}</div>
+        </div>)}
+      {archive ? (
+        <>
+          <div className="muted" style={{ fontSize: 13.5 }}>L'objectif disparaît du tableau de bord et de la projection, mais reste consultable dans « Atteints et archivés ».</div>
+          {v > 0 && <label className="switch" style={{ marginTop: 16 }}><input type="checkbox" checked={release} onChange={(e) => setRelease(e.target.checked)} />Remettre les {fmt(v)} FCFA épargnés dans le solde disponible</label>}
+        </>
+      ) : (
+        <>
+          <div className="seg" style={{ display: 'flex', marginBottom: 16 }}>
+            <button style={{ flex: 1 }} className={spend ? 'on' : ''} onClick={() => setSpend(true)} disabled={v <= 0}>J'ai utilisé l'argent</button>
+            <button style={{ flex: 1 }} className={!spend ? 'on' : ''} onClick={() => setSpend(false)}>Je garde l'argent de côté</button>
+          </div>
+          {spend ? (
+            <div className="form f2">
+              <Field label="Montant dépensé (FCFA)" hint={+montant > v ? `Maximum ${fmt(v)}` : rest > 0 ? `${fmt(rest)} resteront sur l'objectif` : null}><input className="inp num" type="number" value={montant} onChange={(e) => setMontant(e.target.value)} /></Field>
+              <Field label="Catégorie"><select className="inp" value={cat} onChange={(e) => setCat(e.target.value)}>{CATS_OUT.map((c) => <option key={c} value={c}>{CATS[c]}</option>)}</select></Field>
+              <Field label="Libellé" span><input className="inp" value={label} onChange={(e) => setLabel(e.target.value)} /></Field>
+              <Field label="Payé depuis" span><AccPicker st={st} value={accountId} onChange={setAcc} /></Field>
+              {rest > 0 && <label className="switch" style={{ gridColumn: '1 / -1' }}><input type="checkbox" checked={release} onChange={(e) => setRelease(e.target.checked)} />Remettre le reste ({fmt(rest)} FCFA) dans le solde disponible</label>}
+            </div>
+          ) : <div className="muted" style={{ fontSize: 13.5 }}>L'objectif est marqué comme atteint. L'argent reste affecté à cet objectif tant que tu ne le retires pas.</div>}
+        </>
+      )}
+    </Modal>
+  );
+}
+
+function GoalHistoryModal({ g, st, bal, onClose }) {
+  const tx = st.transactions.filter((t) => t.goalId === g.id).sort((a, b) => b.date.localeCompare(a.date));
+  const lbl = { save: 'Versement', withdraw: 'Retrait', in: 'Cagnotte / entrée directe' };
+  const plus = (t) => t.kind === 'save' || t.kind === 'in';
+  const totIn = tx.filter(plus).reduce((s, t) => s + t.montant, 0); const totOut = tx.filter((t) => !plus(t)).reduce((s, t) => s + t.montant, 0);
+  return (
+    <Modal title={`Historique · ${g.nom}`} onClose={onClose} footer={<button className="btn s" onClick={onClose}>Fermer</button>}>
+      <div className="meta" style={{ marginTop: 0, marginBottom: 14 }}>
+        <div><div className="k">Versé</div><div className="v pos">+{fmt(totIn + (+g.initial || 0))}</div></div>
+        <div><div className="k">Retiré</div><div className="v neg">−{fmt(totOut)}</div></div>
+        <div><div className="k">Solde</div><div className="v">{fmt(bal.goals[g.id] || 0)}</div></div>
+      </div>
+      <div className="bulk-list">
+        {+g.initial > 0 && <div className="bulk-row"><div className="chip-ic s" style={{ width: 30, height: 30 }}><PiggyBank size={14} /></div><div style={{ flex: 1 }}><div style={{ fontWeight: 550 }}>Déjà épargné à la création</div></div><b className="pos">+{fmt(g.initial)}</b></div>}
+        {tx.map((t) => (
+          <div className="bulk-row" key={t.id}>
+            <DChip iso={t.date} />
+            <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 550, fontSize: 13.5 }}>{t.label}</div><div className="muted" style={{ fontSize: 12 }}>{lbl[t.kind] || t.kind}</div></div>
+            <b className={plus(t) ? 'pos' : 'neg'}>{plus(t) ? '+' : '−'}{fmt(t.montant)}</b>
+          </div>))}
+        {!tx.length && !(+g.initial > 0) && <div className="empty" style={{ padding: 20 }}>Aucun mouvement pour l'instant.</div>}
+      </div>
+    </Modal>
+  );
 }
