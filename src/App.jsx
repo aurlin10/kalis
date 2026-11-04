@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   LayoutGrid, LineChart as LineIc, Target, Repeat, Users, HandCoins, List, Settings, Plus, Check, Pencil, Trash2, X,
   ArrowDownLeft, ArrowUpRight, PiggyBank, Sun, Moon, Monitor, AlertTriangle, Info, Download, Upload, RotateCcw, Undo2, Wallet, CalendarDays,
-  ArrowLeftRight, BarChart3, FlaskConical, Lock, Bell, Star, FileSpreadsheet, FileText, FolderOpen, RefreshCw, Gauge, PartyPopper, KeyRound, ShieldCheck, Smartphone, Keyboard, Power, Delete, Sparkles, Search, Trophy, Archive, History, CheckCheck, Clock, Banknote, ArchiveRestore, Zap, Tag, CalendarRange,
+  ArrowLeftRight, BarChart3, FlaskConical, Lock, Bell, Star, FileSpreadsheet, FileText, FolderOpen, RefreshCw, Gauge, PartyPopper, KeyRound, ShieldCheck, Smartphone, Keyboard, Power, Delete, Sparkles, Search, Trophy, Archive, History, CheckCheck, Clock, Banknote, ArchiveRestore, Zap, Tag, CalendarRange, UtensilsCrossed, Bus, HeartPulse, ShoppingBag, Ticket, CornerDownLeft, ChevronDown,
 } from 'lucide-react';
 import {
   AreaChart, Area, LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine,
@@ -1547,6 +1547,9 @@ function GoalHistoryModal({ g, st, bal, onClose }) {
 // =====================================================================
 // ================= 1.6.0 : saisie express, plan d'épargne, catégories =
 // =====================================================================
+const CAT_ICONS = { alimentation: UtensilsCrossed, transport: Bus, loisirs: Ticket, shopping: ShoppingBag, sante: HeartPulse, famille: Users, vie: Wallet };
+const catIcon = (c) => CAT_ICONS[c] || Tag;
+
 function QuickAdd({ st, addTx, setSettings, setToast }) {
   const q = st.settings.quick || {};
   const [m, setM] = useState('');
@@ -1556,20 +1559,28 @@ function QuickAdd({ st, addTx, setSettings, setToast }) {
   const add = () => {
     if (!(+m > 0)) { ref.current?.focus(); return; }
     addTx({ date: todayISO(), label: CATS[cat], kind: 'out', cat, montant: +m, accountId: acc });
-    setSettings({ quick: { cat, acc } });
+    setSettings({ quick: { ...q, cat, acc } });
     setToast({ msg: `${fmt(+m)} FCFA · ${CATS[cat]} · ${accName(st, acc)}`, prev: st });
     setM(''); ref.current?.focus();
   };
+  const pick = (c) => { setCat(c); ref.current?.focus(); };
+  const amount = (
+    <div className="qa-amount">
+      <input ref={ref} className="num" type="number" inputMode="numeric" placeholder="0" value={m} onChange={(e) => setM(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} />
+      <span>FCFA</span>
+    </div>
+  );
+
   return (
-    <div className="card quick mt">
-      <div className="quick-l"><Zap size={16} /><b>Saisie express</b></div>
-      <div className="quick-amt">
-        <input ref={ref} className="inp num big" type="number" placeholder="Montant" value={m} onChange={(e) => setM(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} />
-        <div className="quick-chips">{[100, 150, 200, 500, 1000, 2000].map((v) => <button key={v} onClick={() => setM(String(v))}>{v >= 1000 ? `${v / 1000} k` : v}</button>)}</div>
+    <div className="card qb mt">
+      <div className="qb-head"><div><b>Saisie express</b><span className="muted"> · dépense d'aujourd'hui</span></div>
+        <div className="qb-acc">{st.accounts.map((a) => <button key={a.id} className={acc === a.id ? 'on' : ''} onClick={() => setAcc(a.id)} title={a.nom}><i style={{ background: a.couleur }} />{a.nom}</button>)}</div></div>
+      <div className="qb-body">
+        <div className="qb-tiles">{CATS_VIE.map((c) => { const I = catIcon(c); return <button key={c} className={cat === c ? 'on' : ''} onClick={() => pick(c)}><span className="qb-ic"><I size={18} /></span>{CATS[c]}</button>; })}</div>
+        <div className="qb-input">{amount}
+          <div className="qb-fast">{[200, 500, 1000, 2000].map((v) => <button key={v} onClick={() => { setM(String(v)); ref.current?.focus(); }}>{v >= 1000 ? `${v / 1000} k` : v}</button>)}</div>
+          <button className="btn p" onClick={add}><CornerDownLeft size={15} />Ajouter</button></div>
       </div>
-      <div className="quick-cats">{CATS_VIE.map((c) => <button key={c} className={cat === c ? 'on' : ''} onClick={() => { setCat(c); ref.current?.focus(); }}>{CATS[c]}</button>)}</div>
-      <select className="inp quick-acc" value={acc} onChange={(e) => setAcc(e.target.value)}>{st.accounts.map((a) => <option key={a.id} value={a.id}>{a.nom}</option>)}</select>
-      <button className="btn p" onClick={add}><Plus size={15} />Ajouter</button>
     </div>
   );
 }

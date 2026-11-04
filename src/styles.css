@@ -455,20 +455,6 @@ tr.clickable { cursor: default; }
 @media (max-width: 1180px) { .month-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
 @media (max-width: 760px) { .month-grid { grid-template-columns: 1fr; } .search { min-width: 0; flex: 1 1 100%; } }
 
-/* ---------- 1.6.0 ---------- */
-.quick { display: flex; align-items: center; gap: 14px; padding: 14px 18px; flex-wrap: wrap; }
-.quick-l { display: flex; align-items: center; gap: 8px; color: var(--primary); white-space: nowrap; }
-.quick-l b { color: var(--ink); font-weight: 650; }
-.quick-amt { display: flex; flex-direction: column; gap: 6px; width: 170px; }
-.quick-amt .inp { padding: 8px 12px; }
-.quick-chips { display: flex; gap: 4px; }
-.quick-chips button { flex: 1; border: 1px solid var(--line); background: var(--line2); border-radius: 7px; font-size: 11.5px; font-weight: 600; padding: 3px 0; cursor: pointer; color: var(--ink2); }
-.quick-chips button:hover { border-color: var(--primary); color: var(--primary); }
-.quick-cats { display: flex; gap: 6px; flex-wrap: wrap; flex: 1; min-width: 240px; }
-.quick-cats button { border: 1px solid var(--line); background: var(--surface); border-radius: 99px; padding: 6px 12px; font-size: 12.5px; font-weight: 550; cursor: pointer; color: var(--ink2); }
-.quick-cats button.on { background: var(--primary); border-color: var(--primary); color: #fff; }
-.quick-acc { width: 150px; padding: 8px 10px; }
-@media (max-width: 900px) { .quick-amt { width: 100%; } .quick-acc { flex: 1; } }
 
 /* ================= Vue d'ensemble (1.7) ================= */
 .dash-top { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(0, 1fr); gap: 16px; }
@@ -503,7 +489,6 @@ tr.clickable { cursor: default; }
 .month-foot > div + div { border-left: 1px solid var(--line); }
 .month-foot b { font-size: 16px; font-weight: 700; }
 
-.dash .quick { margin-top: 16px; }
 .tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
 .tile { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow); padding: 16px 18px; display: flex; gap: 14px; align-items: flex-start; }
 .tile .chip-ic { width: 38px; height: 38px; border-radius: 12px; }
@@ -528,3 +513,31 @@ tr.clickable { cursor: default; }
 @media (max-width: 1280px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 1180px) { .dash-top { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 760px) { .tiles { grid-template-columns: minmax(0, 1fr); } .metrics { gap: 4px; padding: 14px 8px 4px; } }
+
+/* ---------- Saisie express (tuiles de catégories) ---------- */
+.qa-amount { display: flex; align-items: baseline; gap: 6px; }
+.qa-amount input { border: 0; outline: none; background: none; font-size: 22px; font-weight: 700; letter-spacing: -.4px; width: 130px; color: var(--ink); padding: 0; }
+.qa-amount input::placeholder { color: var(--ink3); }
+.qa-amount input::-webkit-inner-spin-button { display: none; }
+.qa-amount span { font-size: 12px; color: var(--ink3); font-weight: 600; }
+/* B — tuiles catégories */
+.qb { padding: 16px 20px; }
+.qb-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; font-size: 14px; }
+.qb-acc { display: flex; gap: 4px; padding: 3px; border-radius: 11px; background: var(--line2); flex-wrap: wrap; }
+.qb-acc button { display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; padding: 5px 10px; border-radius: 8px; font-size: 12.5px; font-weight: 550; color: var(--ink2); cursor: pointer; }
+.qb-acc button i { width: 8px; height: 8px; border-radius: 3px; }
+.qb-acc button.on { background: var(--surface); color: var(--ink); box-shadow: 0 1px 3px rgba(15,23,42,.1); font-weight: 650; }
+.qb-body { display: flex; gap: 16px; align-items: stretch; flex-wrap: wrap; }
+.qb-tiles { display: grid; grid-template-columns: repeat(7, minmax(78px, 1fr)); gap: 8px; flex: 1; min-width: 300px; }
+.qb-tiles button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 10px 4px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface); font-size: 11.5px; font-weight: 600; color: var(--ink2); cursor: pointer; transition: .15s; }
+.qb-ic { width: 36px; height: 36px; border-radius: 12px; display: grid; place-items: center; background: var(--line2); color: var(--ink2); }
+.qb-tiles button:hover { border-color: var(--primary); }
+.qb-tiles button.on { border-color: var(--primary); background: var(--primary-soft); color: var(--primary-ink); }
+.qb-tiles button.on .qb-ic { background: var(--primary); color: #fff; }
+.qb-input { display: flex; flex-direction: column; justify-content: center; gap: 10px; padding: 12px 16px; border-radius: 14px; background: var(--line2); min-width: 210px; }
+.qb-fast { display: flex; gap: 4px; }
+.qb-fast button { flex: 1; border: 1px solid var(--line); background: var(--surface); border-radius: 8px; font-size: 12px; font-weight: 600; padding: 4px 0; cursor: pointer; color: var(--ink2); }
+.qb-fast button:hover { border-color: var(--primary); color: var(--primary); }
+.qb-input:focus-within { box-shadow: 0 0 0 2px var(--primary) inset; }
+@media (max-width: 1180px) { .qb-tiles { grid-template-columns: repeat(4, minmax(70px, 1fr)); } }
+@media (max-width: 760px) { .qb-input { flex: 1 1 100%; } }
