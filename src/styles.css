@@ -541,3 +541,18 @@ tr.clickable { cursor: default; }
 .qb-input:focus-within { box-shadow: 0 0 0 2px var(--primary) inset; }
 @media (max-width: 1180px) { .qb-tiles { grid-template-columns: repeat(4, minmax(70px, 1fr)); } }
 @media (max-width: 760px) { .qb-input { flex: 1 1 100%; } }
+.save-ind { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink3); font-weight: 500; transition: color .2s; }
+.save-ind.on { color: var(--pos); font-weight: 650; }
+/* ---------- Budgets 1.8 ---------- */
+.budget-row { gap: 16px; }
+.bud-name { display: flex; align-items: center; gap: 10px; width: 190px; flex-shrink: 0; border: 0; background: none; text-align: left; cursor: pointer; padding: 4px; margin: -4px; border-radius: 10px; color: var(--ink); }
+.bud-name:hover { background: var(--line2); }
+.bud-name > span:last-child { display: flex; flex-direction: column; font-size: 13.5px; }
+.bud-name .muted { font-size: 11.5px; }
+.bud-ic { width: 32px; height: 32px; border-radius: 10px; background: var(--primary-soft); color: var(--primary); display: grid; place-items: center; flex-shrink: 0; }
+.bud-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12.5px; color: var(--ink2); margin-top: 6px; }
+.bud-meta b { color: var(--ink); }
+.pace { padding-left: 10px; border-left: 1px solid var(--line); }
+.pace.neg b { color: var(--neg); }
+.off-budget { background: color-mix(in srgb, var(--warn-soft) 55%, transparent); }
+@media (max-width: 900px) { .bud-name { width: 140px; } }

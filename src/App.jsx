@@ -1189,44 +1189,125 @@ function AccountModal({ a, st, onClose, onOk, onDelete }) {
 // =====================================================================
 // ================= BUDGETS ===========================================
 // =====================================================================
-function Budgets({ st, set, open }) {
+function Budgets({ st, set, open, updateTx }) {
   const [m, setM] = useState(mkey(new Date()));
-  const [draft, setDraft] = useState(() => ({ ...st.budgets }));
+  const draft = st.budgets || {};
+  const [saved, setSaved] = useState(false);
+  useEffect(() => { if (!saved) return; const t = setTimeout(() => setSaved(false), 1500); return () => clearTimeout(t); }, [saved]);
+  // Enregistrement immédiat : chaque modification est sauvegardée sans bouton
+  const setBudget = (c, v) => { const nb = { ...st.budgets }; if (+v > 0) nb[c] = +v; else delete nb[c]; set({ budgets: nb }); setSaved(true); };
   const total = CATS_VIE.reduce((s, c) => s + (+draft[c] || 0), 0);
   const spent = spentVie(st, m);
-  const dirty = JSON.stringify(Object.fromEntries(Object.entries(draft).filter(([, v]) => +v > 0).map(([k, v]) => [k, +v]))) !== JSON.stringify(Object.fromEntries(Object.entries(st.budgets).filter(([, v]) => +v > 0)));
-  const save = () => set({ budgets: Object.fromEntries(Object.entries(draft).filter(([, v]) => +v > 0).map(([k, v]) => [k, +v])) });
   const d = new Date(); const isCur = m === mkey(d); const prog = isCur ? d.getDate() / daysIn(m) : 1;
+  const dim = daysIn(m); const dayNow = isCur ? d.getDate() : dim; const daysLeft = isCur ? dim - d.getDate() + 1 : 0;
+  const paceTot = Math.round(spent / dayNow * dim);
+  const revPlan = monthPlan(st, m).entrees;
+  const [detail, setDetail] = useState(null);
+  const [showSugg, setSugg] = useState(false);
+  // Suggestions : moyenne des mois complets précédents (jusqu'à 3) depuis la date de départ, sinon rythme du mois en cours
+  const startK = (st.dateInitiale || '').slice(0, 7);
+  const cur0 = mkey(d);
+  const prevMonths = [1, 2, 3].map((i) => addMonths(cur0, -i)).filter((k) => k > startK);
+  const histMonths = prevMonths.length;
+  const sugg = useMemo(() => {
+    const o = {};
+    for (const c of CATS_VIE) {
+      let v;
+      if (histMonths) v = prevMonths.reduce((s2, k) => s2 + spentCat(st, k, c), 0) / histMonths;
+      else { const dn = d.getDate(); v = spentCat(st, cur0, c) / dn * daysIn(cur0); }
+      o[c] = v > 0 ? Math.ceil(v / 1000) * 1000 : 0;
+    }
+    return o;
+  }, [st.transactions]);
+  const [pick, setPick] = useState({});
+  useEffect(() => { if (showSugg) setPick(Object.fromEntries(CATS_VIE.filter((c) => sugg[c] > 0 && !(+draft[c] > 0)).map((c) => [c, String(sugg[c])]))); }, [showSugg]);
+  const offBudget = CATS_VIE.filter((c) => !(+draft[c] > 0) && spentCat(st, m, c) > 0);
   return (
     <>
       <Top title="Budgets" sub="Plafonds mensuels de tes dépenses variables">
-        {dirty && <button className="btn p" onClick={save}><Check size={15} />Enregistrer</button>}
+        <span className={'save-ind' + (saved ? ' on' : '')}><Check size={14} />{saved ? 'Enregistré' : 'Enregistrement automatique'}</span>
       </Top>
       <div className="content">
         <div className="grid g3">
-          <Kpi accent icon={Gauge} k="Budget mensuel total" v={<>{fmt(total)}<small>FCFA</small></>} f="Utilisé dans la projection" />
-          <Kpi icon={ArrowUpRight} tone={spent > total && total > 0 ? 'r' : 'o'} k={`Dépensé · ${mLabel(m, true)}`} v={<>{fmt(spent)}<small>FCFA</small></>} f={total ? `${Math.round((spent / total) * 100)} % du budget` : 'Aucun budget défini'} />
-          <Kpi icon={Wallet} tone="g" k="Reste à dépenser" v={<span className={total - spent < 0 ? 'neg' : ''}>{fmt(total - spent)}</span>} f={isCur ? (daysIn(m) - d.getDate() > 1 ? `${daysIn(m) - d.getDate()} jours restants` : daysIn(m) - d.getDate() === 1 ? 'Dernier jour demain' : 'Dernier jour du mois') : 'Mois terminé'} />
+          <Kpi accent icon={Gauge} k="Budget mensuel total" v={<>{fmt(total)}<small>FCFA</small></>} f={revPlan > 0 ? `${Math.round((total / revPlan) * 100)} % de tes revenus prévus du mois` : 'Utilisé dans la projection'} />
+          <Kpi icon={ArrowUpRight} tone={spent > total && total > 0 ? 'r' : 'o'} k={`Dépensé · ${mLabel(m, true)}`} v={<>{fmt(spent)}<small>FCFA</small></>} f={total ? `${Math.round((spent / total) * 100)} % du budget${isCur ? ` · à ce rythme ${fmt(paceTot)} en fin de mois` : ''}` : 'Aucun budget défini'} />
+          <Kpi icon={Wallet} tone={total - spent < 0 ? 'r' : 'g'} k="Reste à dépenser" v={<span className={total - spent < 0 ? 'neg' : ''}>{fmt(total - spent)}</span>} f={isCur ? (daysLeft > 0 && total - spent > 0 ? `soit ${fmt((total - spent) / daysLeft)} FCFA par jour (${daysLeft} j)` : 'Budget du mois épuisé') : 'Mois terminé'} />
         </div>
+
+        {offBudget.length > 0 && (
+          <div className="alert warn mt" style={{ marginBottom: 0 }}>
+            <div className="chip-ic"><AlertTriangle size={16} /></div>
+            <div style={{ flex: 1 }}>Dépenses <b>hors budget</b> ce mois-ci : {offBudget.map((c) => `${CATS[c]} (${fmt(spentCat(st, m, c))})`).join(', ')}.</div>
+            <button className="btn s sm" onClick={() => setSugg(true)}>Créer leurs budgets</button>
+          </div>)}
+
         <div className="card mt tbl" style={{ overflow: 'hidden' }}>
           <div className="card-h">
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><button className="btn s sm" onClick={() => setM(addMonths(m, -1))}>‹</button><b style={{ minWidth: 120, textAlign: 'center', textTransform: 'capitalize' }}>{mLabel(m, true)}</b><button className="btn s sm" onClick={() => setM(addMonths(m, 1))}>›</button></div>
-            <span className="muted" style={{ fontSize: 12.5 }}>Le trait vertical indique où tu devrais en être aujourd'hui</span>
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+              <span className="muted" style={{ fontSize: 12.5 }}>Trait vertical = où tu devrais en être aujourd'hui</span>
+              <button className="btn s sm" onClick={() => setSugg(true)}><Sparkles size={14} />Budgets suggérés</button>
+            </div>
           </div>
           {CATS_VIE.map((c) => {
             const b = +draft[c] || 0; const sp = spentCat(st, m, c); const p = b ? sp / b : 0;
+            const pace = isCur ? Math.round(sp / dayNow * dim) : sp;
             const col = p > 1 ? 'var(--neg)' : p > 0.85 ? 'var(--warn)' : 'var(--primary)';
+            const nTx = st.transactions.filter((t) => t.kind === 'out' && t.cat === c && t.date.startsWith(m)).length;
+            const off = !b && sp > 0;
             return (
-              <div className="row budget-row" key={c}>
-                <div style={{ width: 170, fontWeight: 550 }}>{CATS[c]}</div>
+              <div className={'row budget-row' + (off ? ' off-budget' : '')} key={c}>
+                <button className="bud-name" onClick={() => setDetail(c)} title="Voir les opérations">
+                  <span className="bud-ic">{React.createElement(catIcon(c), { size: 15 })}</span>
+                  <span><b>{CATS[c]}</b><span className="muted">{nTx} opération{nTx > 1 ? 's' : ''}</span></span>
+                </button>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className="bar budget-bar" style={{ height: 10 }}><i style={{ width: Math.min(100, p * 100) + '%', background: col }} />{isCur && b > 0 && <em style={{ left: prog * 100 + '%' }} />}</div>
-                  <div className="s" style={{ marginTop: 5 }}>{fmt(sp)} dépensés{b ? ` · ${Math.round(p * 100)} %` : ''}{p > 1 && <span className="badge r">Dépassé de {fmt(sp - b)}</span>}{p > 0.85 && p <= 1 && <span className="badge warn">Presque atteint</span>}</div>
+                  <div className="bar budget-bar" style={{ height: 10 }}><i style={{ width: b ? Math.min(100, p * 100) + '%' : sp > 0 ? '100%' : 0, background: off ? 'repeating-linear-gradient(45deg, var(--warn) 0 6px, transparent 6px 10px)' : col }} />{isCur && b > 0 && <em style={{ left: prog * 100 + '%' }} />}</div>
+                  <div className="bud-meta">
+                    <span><b className="num">{fmt(sp)}</b> dépensés{b ? ` · ${Math.round(p * 100)} %` : ''}</span>
+                    {off && <span className="badge warn" style={{ marginLeft: 0 }}>Hors budget</span>}
+                    {p > 1 && <span className="badge r" style={{ marginLeft: 0 }}>Dépassé de {fmt(sp - b)}</span>}
+                    {p > 0.85 && p <= 1 && <span className="badge warn" style={{ marginLeft: 0 }}>Presque atteint</span>}
+                    {isCur && sp > 0 && <span className={'pace ' + (b && pace > b ? 'neg' : '')}>À ce rythme : <b className="num">{fmt(pace)}</b></span>}
+                    {isCur && b > 0 && sp < b && daysLeft > 0 && <span className="pace">≈ <b className="num">{fmt((b - sp) / daysLeft)}</b> / jour possible</span>}
+                  </div>
                 </div>
-                <input className="inp num" style={{ width: 140, textAlign: 'right' }} type="number" placeholder="Budget" value={draft[c] ?? ''} onChange={(e) => setDraft({ ...draft, [c]: e.target.value })} />
+                {off ? <button className="btn s sm" onClick={() => setBudget(c, sugg[c] || Math.ceil(pace / 1000) * 1000)}><Plus size={13} />Budget {fmt(sugg[c] || Math.ceil(pace / 1000) * 1000)}</button> : null}
+                <input className="inp num" style={{ width: 130, textAlign: 'right' }} type="number" placeholder="Budget" value={draft[c] ?? ''} onChange={(e) => setBudget(c, e.target.value)} />
               </div>);
           })}
         </div>
+
+        {showSugg && (
+          <Modal title="Budgets suggérés" onClose={() => setSugg(false)}
+            footer={<><span className="muted" style={{ fontSize: 12.5, marginRight: 'auto' }}>Nouveau total : <b style={{ color: 'var(--ink)' }}>{fmt(CATS_VIE.reduce((s2, c) => s2 + (pick[c] ? +pick[c] : +draft[c] || 0), 0))}</b> FCFA</span><button className="btn s" onClick={() => setSugg(false)}>Annuler</button><button className="btn p" onClick={() => { const nb = { ...st.budgets }; for (const [c, v] of Object.entries(pick)) { if (+v > 0) nb[c] = +v; } set({ budgets: nb }); setSaved(true); setSugg(false); }}><Check size={15} />Appliquer</button></>}>
+            <div className="muted" style={{ fontSize: 13, marginBottom: 12 }}>{histMonths ? `Calculés sur tes dépenses moyennes des ${histMonths} derniers mois, arrondies au millier.` : `Pas encore de mois complet : calculés sur ton rythme des ${new Date().getDate()} premiers jours, arrondis au millier. Ils deviendront plus fiables le mois prochain.`} Coche ce que tu veux appliquer.</div>
+            <div className="bulk-list">
+              {CATS_VIE.filter((c) => sugg[c] > 0 || +draft[c] > 0).map((c) => (
+                <div className={'bulk-row' + (pick[c] ? '' : ' off')} key={c}>
+                  <input type="checkbox" checked={!!pick[c]} onChange={(e) => setPick({ ...pick, [c]: e.target.checked ? String(sugg[c] || draft[c] || '') : undefined })} />
+                  <span className="bud-ic">{React.createElement(catIcon(c), { size: 14 })}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 600, fontSize: 13.5 }}>{CATS[c]}</div><div className="muted" style={{ fontSize: 12 }}>Actuel : {draft[c] ? fmt(draft[c]) : 'aucun'} · suggéré : {fmt(sugg[c] || 0)}</div></div>
+                  <input className="inp num" style={{ width: 120, textAlign: 'right' }} type="number" disabled={!pick[c]} value={pick[c] ?? ''} onChange={(e) => setPick({ ...pick, [c]: e.target.value })} />
+                </div>))}
+            </div>
+          </Modal>)}
+
+        {detail && (
+          <Modal title={`${CATS[detail]} · ${mLabel(m, true)}`} onClose={() => setDetail(null)} footer={<><span className="muted" style={{ fontSize: 12.5, marginRight: 'auto' }}>Total : <b style={{ color: 'var(--ink)' }}>{fmt(spentCat(st, m, detail))}</b> FCFA{+draft[detail] ? ` sur ${fmt(draft[detail])}` : ''}</span><button className="btn s" onClick={() => setDetail(null)}>Fermer</button></>}>
+            <div className="bulk-list">
+              {st.transactions.filter((t) => t.kind === 'out' && t.cat === detail && t.date.startsWith(m)).sort((a, b2) => b2.date.localeCompare(a.date)).map((t) => (
+                <div className="bulk-row" key={t.id}>
+                  <DChip iso={t.date} />
+                  <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 550, fontSize: 13.5 }}>{t.label}</div><div className="muted" style={{ fontSize: 12 }}>{accName(st, t.accountId)}</div></div>
+                  <select className="inp acc-sel" title="Changer de catégorie" value={t.cat} onChange={(e) => updateTx(t.id, { cat: e.target.value, label: t.label === CATS[t.cat] ? CATS[e.target.value] : t.label })}>{CATS_OUT.map((x) => <option key={x} value={x}>{CATS[x]}</option>)}</select>
+                  <b className="neg num" style={{ minWidth: 70, textAlign: 'right' }}>−{fmt(t.montant)}</b>
+                  <button className="ib" title="Modifier" onClick={() => open('tx', { ...t, editId: t.id, montant: String(t.montant) })}><Pencil size={14} /></button>
+                </div>))}
+              {!st.transactions.some((t) => t.kind === 'out' && t.cat === detail && t.date.startsWith(m)) && <div className="empty" style={{ padding: 20 }}>Aucune dépense dans cette catégorie ce mois-ci.</div>}
+            </div>
+          </Modal>)}
+
         <Card title="Mes catégories" sub="Catégories personnalisées, utilisables partout dans Kalis" style={{ marginTop: 16 }} action={<button className="btn s sm" onClick={() => open('cat')}><Plus size={14} />Nouvelle catégorie</button>} flush>
           {(st.customCats || []).length ? st.customCats.map((c) => (
             <div className="row" key={c.id}>
