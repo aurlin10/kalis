@@ -206,7 +206,7 @@ export default function App() {
   const PAGES = { dash: Dashboard, bilan: Bilan, proj: Projection, scen: Scenarios, goals: Goals, comptes: Comptes, budgets: Budgets, flux: Flux, tont: Tontines, cre: Creances, ops: Operations, set: Params };
   const Page = PAGES[page];
 
-  if (locked && st.settings.pinHash) return <ThemeCtx.Provider value={PAL[eff]}><LockScreen hash={st.settings.pinHash} onUnlock={() => setLocked(false)} /></ThemeCtx.Provider>;
+  if (locked && st.settings.pinHash) return <ThemeCtx.Provider value={PAL[eff]}><LockScreen hash={st.settings.pinHash} len={+st.settings.pinLen || 0} onUnlock={(l) => { if (!st.settings.pinLen && l) setSettings({ pinLen: l }); setLocked(false); }} /></ThemeCtx.Provider>;
 
   return (
     <ThemeCtx.Provider value={PAL[eff]}>
@@ -262,7 +262,7 @@ export default function App() {
       {modal?.type === 'cat' && <CatModal onClose={close} onOk={(c) => { set({ customCats: [...(st.customCats || []), c] }); close(); }} />}
       {modal?.type === 'goalHist' && <GoalHistoryModal g={modal.data} st={st} bal={bal} onClose={close} />}
       {modal?.type === 'account' && <AccountModal a={modal.data} st={st} onClose={close} onOk={(a) => { upsert('accounts', a); close(); }} onDelete={(id) => { remove('accounts', id); close(); }} />}
-      {modal?.type === 'pin' && <PinModal onClose={close} onOk={async (p) => { setSettings({ pinHash: await sha('kalis:' + p) }); close(); }} />}
+      {modal?.type === 'pin' && <PinModal len0={+st.settings.pinLen || 4} onClose={close} onOk={async (p) => { setSettings({ pinHash: await sha('kalis:' + p), pinLen: p.length }); close(); }} />}
       {modal?.type === 'item' && <ItemModal item={modal.data} goals={st.goals} st={st} onClose={close} onOk={(it) => { upsert('items', it); close(); }} />}
       {modal?.type === 'goal' && <GoalModal goal={modal.data} onClose={close} onOk={(g) => { upsert('goals', g); close(); }} />}
       {modal?.type === 'tontine' && <TontineModal t={modal.data} goals={st.goals} onClose={close} onOk={(t) => { upsert('tontines', t); close(); }} />}
@@ -1175,8 +1175,8 @@ function Params({ st, set, setSettings, open, version, checkUpdate, lastBackup, 
             <Row t="Lancer Kalis au démarrage" h={native ? 'Démarre en réduit pour ne rater aucun rappel' : "Disponible dans l'application"}><Sw on={!!auto} disabled={!native} onChange={async (v) => native && setAuto(await native.setAutoLaunch(v))} /></Row>
           </div>
           <div className="card set-card"><Head id="securite" icon={ShieldCheck} t="Sécurité" s="Code PIN à l'ouverture · Ctrl+L pour verrouiller" />
-            <Row t="Code PIN" h={S.pinHash ? 'Demandé à chaque ouverture' : 'Aucun code défini'}>
-              {S.pinHash ? <div style={{ display: 'flex', gap: 8 }}><button className="btn s sm" onClick={() => open('pin')}><KeyRound size={14} />Changer</button><button className="btn d sm" onClick={() => setSettings({ pinHash: null })}>Désactiver</button></div> : <button className="btn p sm" onClick={() => open('pin')}><KeyRound size={14} />Définir</button>}
+            <Row t="Code PIN" h={S.pinHash ? `Code à ${S.pinLen || '4 à 6'} chiffres, demandé à chaque ouverture` : 'Aucun code défini'}>
+              {S.pinHash ? <div style={{ display: 'flex', gap: 8 }}><button className="btn s sm" onClick={() => open('pin')}><KeyRound size={14} />Changer</button><button className="btn d sm" onClick={() => setSettings({ pinHash: null, pinLen: null })}>Désactiver</button></div> : <button className="btn p sm" onClick={() => open('pin')}><KeyRound size={14} />Définir</button>}
             </Row>
           </div>
           <div className="card set-card"><Head id="sauvegarde" icon={FolderOpen} t="Sauvegarde automatique" s="Une copie par jour, 30 jours conservés" />
@@ -1875,30 +1875,40 @@ function Scenarios({ st, set, rows }) {
 // ================= VERROUILLAGE (code PIN) ===========================
 // =====================================================================
 const sha = async (txt) => { const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(txt)); return Array.from(new Uint8Array(b)).map((x) => x.toString(16).padStart(2, '0')).join(''); };
-function LockScreen({ hash, onUnlock }) {
+function LockScreen({ hash, len, onUnlock }) {
+  // len = longueur du code (4, 5 ou 6). Ancien code sans longueur connue : on teste à 4, 5 puis 6 chiffres.
   const [pin, setPin] = useState(''); const [err, setErr] = useState(false);
-  const tryPin = async (p) => { if (p.length < 4) return; if ((await sha('kalis:' + p)) === hash) onUnlock(); else if (p.length >= 6) { setErr(true); setTimeout(() => { setPin(''); setErr(false); }, 600); } };
-  const press = (k) => { if (k === 'del') { setPin(pin.slice(0, -1)); return; } if (pin.length >= 6) return; const p = pin + k; setPin(p); tryPin(p); };
+  const maxL = len || 6;
+  const tryPin = async (p) => {
+    if (p.length < 4) return;
+    if ((!len || p.length === len) && (await sha('kalis:' + p)) === hash) return onUnlock(p.length);
+    if (p.length >= maxL) { setErr(true); setTimeout(() => { setPin(''); setErr(false); }, 600); }
+  };
+  const press = (k) => { if (k === 'del') { setPin(pin.slice(0, -1)); return; } if (pin.length >= maxL) return; const p = pin + k; setPin(p); tryPin(p); };
+  const nDots = len || Math.max(4, pin.length);
   useEffect(() => { const h = (e) => { if (/^\d$/.test(e.key)) press(e.key); else if (e.key === 'Backspace') press('del'); }; window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h); });
   return (
     <div className="lock">
       <div className={'lock-box' + (err ? ' shake' : '')}>
         <img src={logoUrl} alt="" width={64} height={64} />
-        <h2>Kalis est verrouillé</h2><div className="muted" style={{ fontSize: 13 }}>Saisis ton code PIN</div>
-        <div className="pin-dots">{Array.from({ length: 6 }, (_, i) => <i key={i} className={i < pin.length ? 'on' : ''} />)}</div>
+        <h2>Kalis est verrouillé</h2><div className="muted" style={{ fontSize: 13 }}>{len ? `Saisis ton code à ${len} chiffres` : 'Saisis ton code PIN'}</div>
+        <div className="pin-dots">{Array.from({ length: nDots }, (_, i) => <i key={i} className={i < pin.length ? 'on' : ''} />)}</div>
         <div className="pad">{['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', 'del'].map((k, i) => k === '' ? <span key={i} /> : <button key={i} onClick={() => press(k)}>{k === 'del' ? <Delete size={18} /> : k}</button>)}</div>
       </div>
     </div>
   );
 }
-function PinModal({ onClose, onOk }) {
+function PinModal({ onClose, onOk, len0 }) {
+  const [n, setN] = useState(len0 || 4);
   const [a, setA] = useState(''); const [b, setB] = useState('');
-  const ok = /^\d{4,6}$/.test(a) && a === b;
+  const ok = a.length === n && /^\d+$/.test(a) && a === b;
+  const setLen = (k) => { setN(k); setA(a.slice(0, k)); setB(b.slice(0, k)); };
   return (
     <Modal title="Définir un code PIN" onClose={onClose} onEnter={() => ok && onOk(a)} footer={<><button className="btn s" onClick={onClose}>Annuler</button><button className="btn p" disabled={!ok} onClick={async () => onOk(a)}>Enregistrer</button></>}>
       <div className="form f2">
-        <Field label="Code PIN (4 à 6 chiffres)"><input className="inp num" type="password" inputMode="numeric" autoFocus maxLength={6} value={a} onChange={(e) => setA(e.target.value.replace(/\D/g, ''))} /></Field>
-        <Field label="Confirmer" hint={b && a !== b ? 'Les codes ne correspondent pas' : null}><input className="inp num" type="password" inputMode="numeric" maxLength={6} value={b} onChange={(e) => setB(e.target.value.replace(/\D/g, ''))} /></Field>
+        <Field label="Format du code" span><div className="seg">{[4, 5, 6].map((k) => <button key={k} className={n === k ? 'on' : ''} onClick={() => setLen(k)}>{k} chiffres</button>)}</div></Field>
+        <Field label={`Code PIN (${n} chiffres)`} hint={<span className="pin-mini">{Array.from({ length: n }, (_, i) => <i key={i} className={i < a.length ? 'on' : ''} />)}</span>}><input className="inp num" type="password" inputMode="numeric" autoFocus maxLength={n} value={a} onChange={(e) => setA(e.target.value.replace(/\D/g, '').slice(0, n))} /></Field>
+        <Field label="Confirmer" hint={b && a !== b ? 'Les codes ne correspondent pas' : b.length === n && ok ? 'Les codes correspondent' : null}><input className="inp num" type="password" inputMode="numeric" maxLength={n} value={b} onChange={(e) => setB(e.target.value.replace(/\D/g, '').slice(0, n))} /></Field>
       </div>
       <div className="muted" style={{ fontSize: 12.5, marginTop: 12 }}>Le code est demandé à chaque ouverture de Kalis et avec Ctrl+L. En cas d'oubli, il faudra restaurer une sauvegarde.</div>
     </Modal>
