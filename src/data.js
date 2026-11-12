@@ -129,7 +129,7 @@ export const amountOf = (it, st) => {
   }
   return +it.montant;
 };
-const dateIn = (key, jour) => `${key}-${pad(Math.min(+jour || 1, daysIn(key)))}`;
+export const dateIn = (key, jour) => `${key}-${pad(Math.min(+jour || 1, daysIn(key)))}`;
 
 export const occurrences = (st, key) => {
   const out = [];

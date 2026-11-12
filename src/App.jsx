@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   LayoutGrid, LineChart as LineIc, Target, Repeat, Users, HandCoins, List, Settings, Plus, Check, Pencil, Trash2, X,
   ArrowDownLeft, ArrowUpRight, PiggyBank, Sun, Moon, Monitor, AlertTriangle, Info, Download, Upload, RotateCcw, Undo2, Wallet, CalendarDays,
@@ -12,7 +13,7 @@ import logoUrl from '../build/logo.svg';
 import {
   defaultState, balances, projection, pending, upcoming, occurrences, mkey, addMonths, mLabel, dLabel, fmt, fcfa, short, uid,
   CATS, CATS_IN, CATS_OUT, CATS_VIE, GOAL_COLORS, goalReach, monthDiff, todayISO, isActive, amountOf, spentVie, spentCat,
-  migrate, fixCat, budgetTotal, CATS_DEBT, accName, creanceOccs, monthStats, monthPlan, applyScenario, SCEN_TYPES, EVENT_PRESETS, daysIn, isGoalActive, applyCustomCats, amountSuggestions, weeklySummary, weekKey, paidMap, parseSMS, prevMonth, JOURS, habitToday, habitsMonthly, habitLogged, budgetTotal as bTotal,
+  migrate, fixCat, budgetTotal, CATS_DEBT, accName, creanceOccs, monthStats, monthPlan, applyScenario, SCEN_TYPES, EVENT_PRESETS, daysIn, isGoalActive, applyCustomCats, amountSuggestions, weeklySummary, weekKey, paidMap, parseSMS, prevMonth, JOURS, habitToday, habitsMonthly, habitLogged, budgetTotal as bTotal, dateIn,
 } from './data.js';
 import { reportHTML } from './report.js';
 
@@ -262,6 +263,67 @@ export default function App() {
 }
 
 // ================= Shared UI =================
+// Liste déroulante maison : même API qu'un <select> (value, onChange(e) avec e.target.value, <option>)
+const selOpts = (children) => {
+  const out = [];
+  const walk = (ch) => React.Children.forEach(ch, (c) => {
+    if (!c || typeof c !== 'object') return;
+    if (c.type === React.Fragment || c.type === 'optgroup') walk(c.props.children);
+    else if (c.type === 'option') { const label = React.Children.toArray(c.props.children).join(''); out.push({ value: String(c.props.value ?? label), label, disabled: !!c.props.disabled }); }
+  });
+  walk(children); return out;
+};
+function Sel({ value, onChange, children, className = '', style, disabled, title }) {
+  const opts = selOpts(children);
+  const ref = React.useRef(null); const listRef = React.useRef(null); const typed = React.useRef({ s: '', t: 0 });
+  const [open, setOpen] = useState(false); const [hi, setHi] = useState(0); const [pos, setPos] = useState(null);
+  const curI = Math.max(0, opts.findIndex((o) => o.value === String(value ?? '')));
+  const cur = opts[curI];
+  const place = () => {
+    const r = ref.current.getBoundingClientRect(); const h = Math.min(320, opts.length * 36 + 10);
+    const below = window.innerHeight - r.bottom > h + 10 || r.top < h + 10;
+    const w = Math.max(r.width, 190); const left = Math.min(r.left, window.innerWidth - w - 8);
+    setPos({ left, width: w, top: below ? r.bottom + 6 : r.top - h - 6, maxHeight: h });
+  };
+  const openIt = () => { if (disabled || !opts.length) return; place(); setHi(curI); setOpen(true); };
+  const pick = (o) => { if (!o || o.disabled) return; setOpen(false); if (o.value !== String(value ?? '')) onChange?.({ target: { value: o.value } }); ref.current?.focus(); };
+  useEffect(() => {
+    if (!open) return;
+    const down = (e) => { if (!ref.current?.contains(e.target) && !listRef.current?.contains(e.target)) setOpen(false); };
+    const sc = (e) => { if (!listRef.current?.contains(e.target)) setOpen(false); };
+    window.addEventListener('mousedown', down); window.addEventListener('resize', sc); window.addEventListener('scroll', sc, true);
+    return () => { window.removeEventListener('mousedown', down); window.removeEventListener('resize', sc); window.removeEventListener('scroll', sc, true); };
+  }, [open]);
+  useEffect(() => { if (open) listRef.current?.querySelector('.sel-o.hi')?.scrollIntoView({ block: 'nearest' }); }, [open, hi]);
+  const key = (e) => {
+    const k = e.key;
+    if (k === 'Escape') { if (open) { e.stopPropagation(); e.preventDefault(); setOpen(false); } return; }
+    if (k === 'Tab') { setOpen(false); return; }
+    if (k === 'ArrowDown' || k === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); if (!open) return openIt(); let i = hi; do { i = (i + (k === 'ArrowDown' ? 1 : -1) + opts.length) % opts.length; } while (opts[i].disabled && i !== hi); setHi(i); return; }
+    if (k === 'Enter' || k === ' ') { e.preventDefault(); e.stopPropagation(); if (open) pick(opts[hi]); else openIt(); return; }
+    if (k.length === 1 && /\S/.test(k)) {
+      const t = Date.now(); typed.current = { s: (t - typed.current.t < 700 ? typed.current.s : '') + k.toLowerCase(), t };
+      const nrm = (x) => x.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+      const i = opts.findIndex((o) => nrm(o.label).startsWith(nrm(typed.current.s)));
+      if (i >= 0) { if (open) setHi(i); else pick(opts[i]); }
+    }
+  };
+  return (
+    <>
+      <button type="button" ref={ref} className={'sel ' + className + (open ? ' open' : '')} style={style} disabled={disabled} title={title} aria-haspopup="listbox" aria-expanded={open} onClick={() => (open ? setOpen(false) : openIt())} onKeyDown={key}>
+        <span className="sel-v">{cur?.label ?? ''}</span><ChevronDown size={14} className="sel-chev" />
+      </button>
+      {open && pos && createPortal(
+        <div className="sel-pop" ref={listRef} role="listbox" style={{ left: pos.left, top: pos.top, minWidth: pos.width, maxHeight: pos.maxHeight }}>
+          {opts.map((o, i) => (
+            <div key={o.value + i} role="option" aria-selected={i === curI} className={'sel-o' + (i === hi ? ' hi' : '') + (i === curI ? ' on' : '') + (o.disabled ? ' dis' : '')} onMouseEnter={() => setHi(i)} onMouseDown={(e) => e.preventDefault()} onClick={() => pick(o)}>
+              <span>{o.label}</span>{i === curI && <Check size={14} />}
+            </div>))}
+        </div>, document.body)}
+    </>
+  );
+}
+
 const Top = ({ title, sub, children }) => (
   <div className="top"><div><h1>{title}</h1>{sub && <div className="sub">{sub}</div>}</div><div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>{children}<div className="avatar">PM</div></div></div>
 );
@@ -461,8 +523,8 @@ function Dashboard({ st, bal, rows, open, setPage, addTx, setSettings, setToast,
     <>
       <Top title={`${hr >= 5 && hr < 18 ? 'Bonjour' : 'Bonsoir'} Paul`} sub={now.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).replace(/^./, (x) => x.toUpperCase())}>
         <div className="seg dash-per">{[['j', "Aujourd'hui"], ['s', 'Semaine'], ['m', 'Mois']].map(([k, l]) => <button key={k} className={per === k ? 'on' : ''} onClick={() => setPer(k)}>{l}</button>)}</div>
-        <label className="dsel"><Smartphone size={14} /><select value={acc} onChange={(e) => setAcc(e.target.value)}><option value="all">Tous les comptes</option>{st.accounts.map((a) => <option key={a.id} value={a.id}>{a.nom}</option>)}</select><ChevronDown size={13} /></label>
-        <label className="dsel"><Tag size={14} /><select value={cat} onChange={(e) => setCat(e.target.value)}><option value="all">Toutes catégories</option>{CATS_VIE.map((k) => <option key={k} value={k}>{CATS[k]}</option>)}</select><ChevronDown size={13} /></label>
+        <label className="dsel"><Smartphone size={14} /><Sel value={acc} onChange={(e) => setAcc(e.target.value)}><option value="all">Tous les comptes</option>{st.accounts.map((a) => <option key={a.id} value={a.id}>{a.nom}</option>)}</Sel><ChevronDown size={13} /></label>
+        <label className="dsel"><Tag size={14} /><Sel value={cat} onChange={(e) => setCat(e.target.value)}><option value="all">Toutes catégories</option>{CATS_VIE.map((k) => <option key={k} value={k}>{CATS[k]}</option>)}</Sel><ChevronDown size={13} /></label>
       </Top>
       <div className="content dash dashB">
         {onboarding && (
@@ -733,114 +795,238 @@ function Goals({ st, bal, rows, open, remove, addTx, upsert }) {
 
 // ================= FLUX =================
 const FREQ = (it) => (it.fin && it.fin === it.debut ? 'Ponctuel' : it.every === 2 ? 'Tous les 2 mois' : it.every === 3 ? 'Trimestriel' : 'Mensuel');
+const daysBetween = (a, b) => Math.round((new Date(b + 'T12:00:00') - new Date(a + 'T12:00:00')) / 864e5);
+const initials = (n) => n.split(/\s+/).filter(Boolean).slice(0, 2).map((x) => x[0]).join('').toUpperCase();
+const AV_COLS = ['#4F46E5', '#0EA5E9', '#10B981', '#F59E0B', '#EC4899', '#8B5CF6', '#14B8A6', '#64748B'];
+const avCol = (n) => AV_COLS[[...n].reduce((s, ch) => s + ch.charCodeAt(0), 0) % AV_COLS.length];
+
 function Flux({ st, open, remove }) {
-  const nk = addMonths(mkey(new Date()), 1);
-  const secs = [['in', 'Revenus'], ['out', 'Charges'], ['evt', 'Dépenses ponctuelles prévues'], ['save', 'Épargne programmée']];
+  const cur = mkey(new Date()); const today = todayISO();
+  const [f, setF] = useState('all');
+  const [q, setQ] = useState('');
+  const [m, setM] = useState(cur);
+  const kindOf = (i) => (i.kind === 'out' && i.cat === 'evenement' ? 'evt' : i.kind);
+  const actM = st.items.filter((i) => isActive(i, m, st));
+  const sum = (k) => actM.filter((i) => kindOf(i) === k).reduce((s, i) => s + amountOf(i, st), 0);
+  const rev = sum('in'), chg = sum('out'), evt = sum('evt'), sav = sum('save');
+  const reste = rev - chg - evt - sav;
+  const occ = occurrences(st, m);
+  const dim = daysIn(m);
+  const byDay = {}; for (const o of occ) { const d = +o.date.slice(8, 10); (byDay[d] = byDay[d] || []).push(o); }
+  const ending = st.items.filter((i) => i.fin && i.fin !== i.debut && i.fin >= cur && monthDiff(cur, i.fin) <= 3);
+  const norm = (x) => String(x || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const list = st.items.filter((i) => (f === 'all' || kindOf(i) === f) && (!q || norm(`${i.label} ${CATS[i.cat]}`).includes(norm(q))))
+    .sort((a, b) => ({ in: 0, out: 1, evt: 2, save: 3 }[kindOf(a)] - { in: 0, out: 1, evt: 2, save: 3 }[kindOf(b)]) || (+a.jour - +b.jour));
+  const FL = [['all', 'Tous'], ['in', 'Revenus'], ['out', 'Charges'], ['evt', 'Ponctuels'], ['save', 'Épargne']];
+  const statusOf = (it) => {
+    if (!isActive(it, cur, st)) return it.debut > cur ? ['à venir', 'muted'] : ['terminé', 'muted'];
+    const ref = `i:${it.id}:${cur}`;
+    if (st.done[ref]) return ['fait ce mois', 'ok'];
+    return dateIn(cur, it.jour) < today ? ['en attente', 'warn'] : [`le ${it.jour}`, ''];
+  };
   return (
     <>
-      <Top title="Flux récurrents" sub="Revenus, charges et épargne qui reviennent dans le temps"><button className="btn p" onClick={() => open('item')}><Plus size={16} />Ajouter un flux</button></Top>
+      <Top title="Flux récurrents" sub="Revenus, charges et épargne qui reviennent dans le temps">
+        <button className="btn p" onClick={() => open('item')}><Plus size={16} />Ajouter un flux</button>
+      </Top>
       <div className="content">
-        {secs.map(([k, l]) => {
-          const list = st.items.filter((i) => (k === 'evt' ? i.kind === 'out' && i.cat === 'evenement' : k === 'out' ? i.kind === 'out' && i.cat !== 'evenement' : i.kind === k));
-          const tot = list.filter((i) => isActive(i, nk, st)).reduce((s, i) => s + amountOf(i, st), 0);
-          return (
-            <div className="card tbl" key={k} style={{ marginBottom: 16, overflow: 'hidden' }}>
-              <div className="card-h"><div><h3>{l}</h3><div className="sub">{fcfa(tot)} prévus en {mLabel(nk, true)}</div></div>
-                <button className="btn s sm" onClick={() => open('item', k === 'evt' ? { kind: 'out', cat: 'evenement', label: '', fin: addMonths(mkey(new Date()), 1) } : { kind: k })}><Plus size={14} />Ajouter</button></div>
-              {list.length ? (
-                <table>
-                  <thead><tr><th>Libellé</th><th style={{ textAlign: 'left' }}>Catégorie</th><th style={{ textAlign: 'left' }}>Fréquence</th><th>Jour</th><th style={{ textAlign: 'left' }}>Période</th><th>Montant</th><th></th></tr></thead>
-                  <tbody>{list.map((it) => (
-                    <tr key={it.id}>
-                      <td style={{ fontWeight: 500 }}>{it.label}{it.incertain && <span className="badge warn">Incertain</span>}{it.variable && <span className="badge">Variable</span>}</td>
-                      <td style={{ textAlign: 'left' }} className="muted">{k === 'save' ? gname(st, it.goalId) || '—' : CATS[it.cat]}</td>
-                      <td style={{ textAlign: 'left' }} className="muted">{FREQ(it)}</td>
-                      <td className="muted">{it.jour}</td>
-                      <td style={{ textAlign: 'left' }} className="muted">{mLabel(it.debut)} → {it.fin ? mLabel(it.fin) : 'sans fin'}</td>
-                      <td style={{ fontWeight: 600 }} className={tone(k === 'evt' ? 'out' : k)}>{it.variable ? `${fmt(it.min)} – ${fmt(it.max)}` : fmt(it.montant)}</td>
-                      <td style={{ width: 70 }}><div style={{ display: 'flex', justifyContent: 'flex-end' }}><button className="ib" onClick={() => open('item', it)}><Pencil size={15} /></button><button className="ib" onClick={() => remove('items', it.id)}><Trash2 size={15} /></button></div></td>
-                    </tr>))}</tbody>
-                </table>
-              ) : <Empty title={`Aucun élément`} text={k === 'save' ? "Programme une épargne depuis un objectif ou ici." : `Ajoute tes ${l.toLowerCase()}.`} />}
-            </div>);
-        })}
+        <div className="pg-kpis">
+          <div className="dk dk-hero"><div className="dk-top"><span>Reste après charges</span><span className="hero-pill up" style={{ textTransform: 'capitalize' }}>{mLabel(m, true)}</span></div>
+            <div className="dk-v num">{reste < 0 ? '−' : ''}{fmt(Math.abs(reste))}<small>FCFA</small></div>
+            <div className="acc-split" title="Part des revenus">{rev > 0 && <><i style={{ width: Math.min(100, (chg / rev) * 100) + '%', background: '#FCA5A5' }} /><i style={{ width: Math.min(100, (evt / rev) * 100) + '%', background: '#FCD34D' }} /><i style={{ width: Math.min(100, (sav / rev) * 100) + '%', background: '#7DD3FC' }} /></>}</div>
+            <div className="acc-legend"><span><i style={{ background: '#FCA5A5' }} />Charges <b>{rev ? Math.round((chg / rev) * 100) : 0} %</b></span><span><i style={{ background: '#FCD34D' }} />Ponctuels <b>{rev ? Math.round((evt / rev) * 100) : 0} %</b></span><span><i style={{ background: '#7DD3FC' }} />Épargne <b>{rev ? Math.round((sav / rev) * 100) : 0} %</b></span></div>
+            <svg className="dk-wave" viewBox="0 0 200 60" preserveAspectRatio="none"><path d="M0 45 C40 30 60 52 100 34 S160 18 200 26 L200 60 L0 60 Z" /></svg></div>
+          <div className="dk dk-g"><div className="dk-top"><span className="dk-ic"><ArrowDownLeft size={15} /></span><span>Revenus prévus</span></div><div className="dk-v num pos">+{fmt(rev)}</div><div className="dk-f">{actM.filter((i) => i.kind === 'in').length} source{actM.filter((i) => i.kind === 'in').length > 1 ? 's' : ''} ce mois-là</div></div>
+          <div className="dk dk-r"><div className="dk-top"><span className="dk-ic"><ArrowUpRight size={15} /></span><span>Charges fixes</span></div><div className="dk-v num neg">−{fmt(chg + evt)}</div><div className="dk-f">{actM.filter((i) => i.kind === 'out').length} sortie{actM.filter((i) => i.kind === 'out').length > 1 ? 's' : ''}{evt ? ` dont ${fmt(evt)} ponctuels` : ''}</div></div>
+          <div className="dk dk-s"><div className="dk-top"><span className="dk-ic"><PiggyBank size={15} /></span><span>Épargne programmée</span></div><div className="dk-v num">{fmt(sav)}</div><div className="dk-f">{actM.filter((i) => i.kind === 'save').length ? `${actM.filter((i) => i.kind === 'save').length} versement(s)` : 'Aucune épargne programmée'}</div></div>
+        </div>
+
+        {ending.length > 0 && <div className="alert warn"><div className="chip-ic"><AlertTriangle size={16} /></div><div style={{ flex: 1 }}>Bientôt terminé : {ending.map((i) => <b key={i.id} style={{ marginRight: 10 }}>{i.label} ({fmt(i.montant)}) en {mLabel(i.fin, true)}</b>)}</div></div>}
+
+        {/* ---- Calendrier du mois ---- */}
+        <div className="card cal-card">
+          <div className="card-h"><div><h3>Calendrier des flux</h3><div className="sub">Quand l'argent entre et sort</div></div>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}><button className="btn s sm" onClick={() => setM(addMonths(m, -1))}>‹</button><b style={{ minWidth: 120, textAlign: 'center', textTransform: 'capitalize', fontSize: 13.5 }}>{mLabel(m, true)}</b><button className="btn s sm" onClick={() => setM(addMonths(m, 1))}>›</button></div></div>
+          <div className="cal">
+            {Array.from({ length: dim }, (_, i) => i + 1).map((d) => {
+              const os = byDay[d] || []; const net = os.reduce((s, o) => s + (o.kind === 'in' ? o.amount : -o.amount), 0);
+              const iso = `${m}-${String(d).padStart(2, '0')}`; const dow = new Date(iso + 'T12:00:00').getDay();
+              return (
+                <div key={d} className={'cal-d' + (iso === today ? ' today' : '') + (dow === 0 || dow === 6 ? ' we' : '') + (os.length ? ' has' : '')} title={os.map((o) => `${o.label} : ${o.kind === 'in' ? '+' : '−'}${fmt(o.amount)}`).join('\n')}>
+                  <span className="cal-n">{d}</span>
+                  <div className="cal-dots">{os.slice(0, 4).map((o) => <i key={o.ref} className={o.kind === 'in' ? 'in' : o.kind === 'save' ? 'sv' : 'out'} />)}</div>
+                  {os.length > 0 && <span className={'cal-v num ' + (net >= 0 ? 'pos' : 'neg')}>{net >= 0 ? '+' : '−'}{short(Math.abs(net))}</span>}
+                </div>);
+            })}
+          </div>
+          <div className="cal-leg"><span><i className="in" />Entrée</span><span><i className="out" />Sortie</span><span><i className="sv" />Épargne</span><span className="muted">Survole un jour pour le détail</span></div>
+        </div>
+
+        {/* ---- Liste ---- */}
+        <div className="card mt" style={{ overflow: 'hidden' }}>
+          <div className="card-h" style={{ flexWrap: 'wrap', gap: 10 }}>
+            <div className="seg">{FL.map(([k, l]) => <button key={k} className={f === k ? 'on' : ''} onClick={() => setF(k)}>{l} <span className="seg-n">{k === 'all' ? st.items.length : st.items.filter((i) => kindOf(i) === k).length}</span></button>)}</div>
+            <div className="search" style={{ minWidth: 220 }}><Search size={15} /><input placeholder="Rechercher un flux" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+          </div>
+          {list.length ? list.map((it) => {
+            const k = kindOf(it); const [stL, stT] = statusOf(it); const acc = st.accounts.find((a) => a.id === it.accountId);
+            const end = it.fin && it.fin !== it.debut && it.fin >= cur && monthDiff(cur, it.fin) <= 3;
+            return (
+              <div className={'fx-row k-' + k} key={it.id}>
+                <div className="fx-ic">{k === 'save' ? <PiggyBank size={16} /> : k === 'in' ? <ArrowDownLeft size={16} /> : React.createElement(catIcon(it.cat), { size: 16 })}</div>
+                <div className="fx-main">
+                  <div className="fx-t">{it.label}{it.incertain && <span className="badge warn">Incertain</span>}{it.variable && <span className="badge">Variable</span>}{end && <span className="badge r">Se termine en {mLabel(it.fin)}</span>}</div>
+                  <div className="fx-s">{k === 'save' ? gname(st, it.goalId) || 'Épargne' : CATS[it.cat]} · {FREQ(it)} · {mLabel(it.debut)} → {it.fin ? mLabel(it.fin) : 'sans fin'}{acc && k !== 'save' ? <> · <i className="dot" style={{ background: acc.couleur }} />{acc.nom}</> : null}</div>
+                </div>
+                <span className={'fx-st ' + stT}>{stT === 'ok' && <Check size={12} />}{stL}</span>
+                <div className={'fx-a num ' + (k === 'in' ? 'pos' : k === 'save' ? '' : 'neg')}>{k === 'in' ? '+' : '−'}{it.variable ? `${short(it.min)}–${short(it.max)}` : fmt(it.montant)}</div>
+                <div className="fx-act"><button className="ib" onClick={() => open('item', it)}><Pencil size={15} /></button><button className="ib" onClick={() => remove('items', it.id)}><Trash2 size={15} /></button></div>
+              </div>);
+          }) : <Empty title="Aucun flux" text="Ajoute tes revenus, charges et épargnes qui reviennent." action={<button className="btn p sm" onClick={() => open('item', f !== 'all' ? (f === 'evt' ? { kind: 'out', cat: 'evenement', label: '', fin: addMonths(cur, 1) } : { kind: f }) : null)}><Plus size={14} />Ajouter</button>} />}
+        </div>
+      </div>
+    </>
+  );
+}
+
+function Tontines({ st, open, remove, undoRef }) {
+  const cur = mkey(new Date()); const today = todayISO();
+  const info = st.tontines.map((t) => {
+    const n = +t.participants; const months = Array.from({ length: n }, (_, i) => addMonths(t.debut, i));
+    const paidN = months.filter((m) => st.done[`tc:${t.id}:${m}`]).length;
+    const recvKey = months[+t.position - 1]; const recvRef = `tr:${t.id}:${recvKey}`;
+    const nextM = months.find((m) => !st.done[`tc:${t.id}:${m}`]);
+    return { t, n, months, paidN, recvKey, recvRef, nextM, pot: +t.cotisation * n, received: !!st.done[recvRef] };
+  });
+  const totCot = info.reduce((s, x) => s + x.paidN * x.t.cotisation, 0);
+  const restant = info.reduce((s, x) => s + (x.n - x.paidN) * x.t.cotisation, 0);
+  const nextC = info.filter((x) => x.nextM).map((x) => ({ x, date: dateIn(x.nextM, x.t.jour) })).sort((a, b) => a.date.localeCompare(b.date))[0];
+  const nextP = info.filter((x) => !x.received).map((x) => ({ x, date: dateIn(x.recvKey, x.t.jour) })).sort((a, b) => a.date.localeCompare(b.date))[0];
+  const occ = (t, m) => occurrences(st, m).find((o) => o.ref === `tc:${t.id}:${m}`);
+  const occR = (x) => occurrences(st, x.recvKey).find((o) => o.ref === x.recvRef);
+  return (
+    <>
+      <Top title="Tontines" sub="Cotisations et cagnottes"><button className="btn p" onClick={() => open('tontine')}><Plus size={16} />Nouvelle tontine</button></Top>
+      <div className="content">
+        {!st.tontines.length ? <div className="card"><Empty icon={Users} title="Aucune tontine" text="Ajoute une ristourne pour suivre tes cotisations et la date de ta cagnotte." action={<button className="btn p" onClick={() => open('tontine')}><Plus size={16} />Ajouter</button>} /></div> : <>
+          <div className="pg-kpis">
+            <div className="dk dk-hero"><div className="dk-top"><span>Prochaine cagnotte</span>{nextP && <span className="hero-pill up">dans {Math.max(0, daysBetween(today, nextP.date))} j</span>}</div>
+              <div className="dk-v num">{nextP ? fmt(nextP.x.pot) : '—'}<small>FCFA</small></div>
+              <div className="dk-f" style={{ color: '#D9DBFF' }}>{nextP ? <>{nextP.x.t.nom} · {dLabel(nextP.date)}{nextP.x.t.goalId && gname(st, nextP.x.t.goalId) ? ` → ${gname(st, nextP.x.t.goalId)}` : ''}</> : 'Toutes les cagnottes sont reçues'}</div>
+              <svg className="dk-wave" viewBox="0 0 200 60" preserveAspectRatio="none"><path d="M0 45 C40 30 60 52 100 34 S160 18 200 26 L200 60 L0 60 Z" /></svg></div>
+            <div className="dk"><div className="dk-top"><span className="dk-ic"><CalendarDays size={15} /></span><span>Prochaine cotisation</span></div><div className="dk-v num">{nextC ? fmt(nextC.x.t.cotisation) : '—'}</div><div className="dk-f">{nextC ? `${nextC.x.t.nom} · ${dLabel(nextC.date)}${nextC.date < today ? ' · en retard' : ''}` : 'Rien à payer'}</div></div>
+            <div className="dk dk-g"><div className="dk-top"><span className="dk-ic"><Check size={15} /></span><span>Déjà cotisé</span></div><div className="dk-v num">{fmt(totCot)}</div><div className="dk-f">sur le cycle en cours</div></div>
+            <div className="dk dk-r"><div className="dk-top"><span className="dk-ic"><Clock size={15} /></span><span>Reste à cotiser</span></div><div className="dk-v num">{fmt(restant)}</div><div className="dk-f">jusqu'à la fin des cycles</div></div>
+          </div>
+          <div className="tn-grid">{info.map((x) => {
+            const { t, n, months, paidN, recvKey } = x; const pos = +t.position;
+            const kind = pos === n ? 'Épargne forcée : tu reçois en dernier, sans risque d’avance.' : pos === 1 ? 'Avance : tu reçois en premier, puis tu rembourses par tes cotisations.' : pos <= n / 2 ? 'Plutôt une avance : tu reçois avant d’avoir tout cotisé.' : 'Plutôt de l’épargne : tu reçois après avoir cotisé l’essentiel.';
+            const nextO = x.nextM && occ(t, x.nextM);
+            return (
+              <div className="card tn-card" key={t.id}>
+                <div className="tn-h">
+                  <Ring pct={paidN / n} color="var(--primary)" size={58} stroke={6} label={`${paidN}/${n}`} />
+                  <div style={{ flex: 1, minWidth: 0 }}><div className="tn-n">{t.nom}{t.goalId && gname(st, t.goalId) && <span className="badge p"><Target size={11} />{gname(st, t.goalId)}</span>}</div>
+                    <div className="muted" style={{ fontSize: 12.5 }}>{fmt(t.cotisation)} FCFA / mois · {n} participants · le {t.jour} du mois</div></div>
+                  <div style={{ display: 'flex' }}><button className="ib" onClick={() => open('tontine', t)}><Pencil size={15} /></button><button className="ib" onClick={() => remove('tontines', t.id)}><Trash2 size={15} /></button></div>
+                </div>
+                <div className="tn-meta">
+                  <div><span>Cagnotte</span><b className="num">{fmt(x.pot)}</b></div>
+                  <div><span>Mon tour</span><b style={{ textTransform: 'capitalize' }}>{mLabel(recvKey, true)}</b></div>
+                  <div><span>Cotisé</span><b className="num">{fmt(paidN * t.cotisation)}</b></div>
+                </div>
+                <div className="tn-tl">{months.map((m, i) => {
+                  const ref = `tc:${t.id}:${m}`; const ok = !!st.done[ref]; const me = i === pos - 1; const late = !ok && dateIn(m, t.jour) < today;
+                  return (
+                    <div key={m} className={'tn-m' + (ok ? ' paid' : '') + (me ? ' me' : '') + (late ? ' late' : '') + (m === cur ? ' cur' : '')}>
+                      <button title={ok ? 'Annuler le paiement' : 'Marquer la cotisation payée'} onClick={() => (ok ? undoRef(ref) : open('confirm', occ(t, m)))}>{me ? <Sparkles size={14} /> : ok ? <Check size={14} /> : i + 1}</button>
+                      <span>{mLabel(m)}</span>
+                    </div>);
+                })}</div>
+                <div className="tn-note"><Info size={14} />{kind}</div>
+                <div className="tn-act">
+                  {nextO ? <button className="btn p sm" onClick={() => open('confirm', nextO)}>Payer la cotisation de {mLabel(x.nextM)}</button> : <span className="badge ok">Cycle cotisé</span>}
+                  {x.received ? <span className="badge ok"><Check size={11} />Cagnotte reçue</span> : recvKey <= cur ? <button className="btn s sm" onClick={() => { const o = occR(x); if (o) open('confirm', o); }}>Marquer la cagnotte reçue</button> : <span className="badge">Cagnotte en {mLabel(recvKey)}</span>}
+                </div>
+              </div>);
+          })}</div></>}
+      </div>
+    </>
+  );
+}
+
+function Creances({ st, open, remove, undoRef }) {
+  const today = todayISO();
+  const [f, setF] = useState('cours');
+  const info = st.creances.map((c) => {
+    const occ = creanceOccs(c); const paid = occ.filter((o) => st.done[o.ref]); const next = occ.find((o) => !st.done[o.ref]);
+    const paidAmt = paid.reduce((s, o) => s + o.amount, 0);
+    return { c, occ, paid, next, paidAmt, reste: c.montant - paidAmt, ok: !next, late: next && next.date < today };
+  });
+  const sumR = (s) => info.filter((x) => x.c.sens === s).reduce((a, x) => a + x.reste, 0);
+  const onMe = sumR('in'), iOwe = sumR('out'); const lates = info.filter((x) => x.late);
+  const sec = (sens, title) => {
+    const list = info.filter((x) => x.c.sens === sens && (f === 'tous' || (f === 'cours' ? !x.ok : x.ok))).sort((a, b) => (a.ok - b.ok) || (a.next?.date || '').localeCompare(b.next?.date || ''));
+    const tot = info.filter((x) => x.c.sens === sens && !x.ok).length;
+    return (
+      <div className="card cr-col">
+        <div className="card-h"><div><h3>{title}</h3><div className="sub">{tot} en cours · {fmt(sens === 'in' ? onMe : iOwe)} FCFA restants</div></div><button className="btn s sm" onClick={() => open('creance', { sens })}><Plus size={14} />Ajouter</button></div>
+        <div className="cr-list">
+          {list.length ? list.map((x) => {
+            const { c, occ, paid, next, paidAmt, ok, late } = x; const n = occ.length;
+            const dd = next ? daysBetween(today, next.date) : 0;
+            const t0 = c.initTx && st.transactions.find((y) => y.id === c.initTx);
+            return (
+              <div className={'cr-card' + (ok ? ' done' : '') + (late ? ' late' : '')} key={c.id}>
+                <div className="cr-top">
+                  <div className="cr-av" style={{ background: avCol(c.nom) }}>{initials(c.nom)}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="cr-n">{c.nom}{n > 1 && <span className="badge">{paid.length}/{n}</span>}</div>
+                    <div className="cr-s">{ok ? (sens === 'in' ? 'Remboursé' : 'Payé') : late ? <span className="neg">En retard de {-dd} j</span> : dd === 0 ? "Aujourd'hui" : `Dans ${dd} j · ${dLabel(next.date)}`}{t0 ? ` · ${sens === 'in' ? 'prêté' : 'reçu'} via ${accName(st, t0.accountId)}` : ''}{!ok && c.lastRelance ? ` · relancé le ${dLabel(c.lastRelance)}` : ''}</div>
+                  </div>
+                  <div className="cr-a"><b className={'num ' + (ok ? 'muted' : sens === 'in' ? 'pos' : 'neg')}>{fmt(ok ? c.montant : x.reste)}</b>{!ok && paidAmt > 0 && <span className="muted num">sur {fmt(c.montant)}</span>}</div>
+                </div>
+                {(n > 1 || paidAmt > 0) && <div className="cr-bar"><i style={{ width: (paidAmt / c.montant) * 100 + '%', background: sens === 'in' ? 'var(--pos)' : 'var(--primary)' }} /></div>}
+                <div className="cr-act">
+                  {ok ? <><span className="badge ok"><Check size={11} />{sens === 'in' ? 'Reçu' : 'Payé'}</span><button className="ib" title="Annuler la dernière échéance" onClick={() => undoRef(paid[paid.length - 1].ref)}><Undo2 size={15} /></button></>
+                    : <>{sens === 'in' && <button className="btn s sm wa-btn" onClick={() => open('relance', c)}><MessageCircle size={14} />Relancer</button>}
+                      <button className="btn p sm" onClick={() => open('confirm', next)}>{sens === 'in' ? 'Marquer reçu' : 'Marquer payé'}{n > 1 ? ` ${fmt(next.amount)}` : ''}</button></>}
+                  <span style={{ flex: 1 }} />
+                  <button className="ib" title="Modifier" onClick={() => open('creance', c)}><Pencil size={15} /></button>
+                  <button className="ib" title="Supprimer" onClick={() => remove('creances', c.id)}><Trash2 size={15} /></button>
+                </div>
+              </div>);
+          }) : <Empty title={f === 'soldes' ? 'Rien de soldé' : 'Rien à signaler'} text={sens === 'in' ? "Personne ne te doit d'argent." : 'Tu ne dois rien.'} />}
+        </div>
+      </div>);
+  };
+  const net = onMe - iOwe;
+  return (
+    <>
+      <Top title="Créances & dettes" sub="Argent prêté et emprunté">
+        <div className="seg">{[['cours', 'En cours'], ['soldes', 'Soldés'], ['tous', 'Tous']].map(([k, l]) => <button key={k} className={f === k ? 'on' : ''} onClick={() => setF(k)}>{l}</button>)}</div>
+        <button className="btn p" onClick={() => open('creance')}><Plus size={16} />Ajouter</button>
+      </Top>
+      <div className="content">
+        <div className="pg-kpis">
+          <div className="dk dk-hero"><div className="dk-top"><span>Solde net</span><span className={'hero-pill ' + (net >= 0 ? 'up' : 'down')}>{net >= 0 ? 'en ta faveur' : 'tu dois plus'}</span></div>
+            <div className="dk-v num">{net < 0 ? '−' : '+'}{fmt(Math.abs(net))}<small>FCFA</small></div>
+            <div className="acc-split">{onMe + iOwe > 0 && <><i style={{ width: (onMe / (onMe + iOwe)) * 100 + '%', background: '#6EE7B7' }} /><i style={{ width: (iOwe / (onMe + iOwe)) * 100 + '%', background: '#FCA5A5' }} /></>}</div>
+            <div className="acc-legend"><span><i style={{ background: '#6EE7B7' }} />On me doit <b>{fmt(onMe)}</b></span><span><i style={{ background: '#FCA5A5' }} />Je dois <b>{fmt(iOwe)}</b></span></div>
+            <svg className="dk-wave" viewBox="0 0 200 60" preserveAspectRatio="none"><path d="M0 45 C40 30 60 52 100 34 S160 18 200 26 L200 60 L0 60 Z" /></svg></div>
+          <div className="dk dk-g"><div className="dk-top"><span className="dk-ic"><ArrowDownLeft size={15} /></span><span>On me doit</span></div><div className="dk-v num pos">{fmt(onMe)}</div><div className="dk-f">{info.filter((x) => x.c.sens === 'in' && !x.ok).length} personne(s)</div></div>
+          <div className="dk dk-r"><div className="dk-top"><span className="dk-ic"><ArrowUpRight size={15} /></span><span>Je dois</span></div><div className="dk-v num neg">{fmt(iOwe)}</div><div className="dk-f">{info.filter((x) => x.c.sens === 'out' && !x.ok).map((x) => x.c.nom).join(', ') || 'Rien'}</div></div>
+          <div className={'dk' + (lates.length ? ' dk-r' : ' dk-g')}><div className="dk-top"><span className="dk-ic"><Clock size={15} /></span><span>En retard</span></div><div className="dk-v num">{lates.length}</div><div className="dk-f">{lates.length ? `${fmt(lates.reduce((s, x) => s + x.next.amount, 0))} FCFA attendus` : 'Tout est à jour'}</div></div>
+        </div>
+        <div className="grid g2" style={{ alignItems: 'start' }}>{sec('in', 'On me doit')}{sec('out', 'Je dois')}</div>
       </div>
     </>
   );
 }
 
 // ================= TONTINES =================
-function Tontines({ st, open, remove, undoRef }) {
-  return (
-    <>
-      <Top title="Tontines" sub="Cotisations et cagnottes"><button className="btn p" onClick={() => open('tontine')}><Plus size={16} />Nouvelle tontine</button></Top>
-      <div className="content">
-        {!st.tontines.length ? <div className="card"><Empty icon={Users} title="Aucune tontine" text="Ajoute une ristourne pour suivre tes cotisations et la date de ta cagnotte." action={<button className="btn p" onClick={() => open('tontine')}><Plus size={16} />Ajouter</button>} /></div>
-          : <div className="grid g2">{st.tontines.map((t) => {
-            const n = +t.participants; const months = Array.from({ length: n }, (_, i) => addMonths(t.debut, i));
-            const paid = months.filter((m) => st.done[`tc:${t.id}:${m}`]).length;
-            const recvKey = months[+t.position - 1]; const recvRef = `tr:${t.id}:${recvKey}`;
-            const occ = (m) => occurrences(st, m).find((o) => o.ref === `tc:${t.id}:${m}`);
-            return (
-              <div className="card" key={t.id}>
-                <div className="card-h"><div><h3>{t.nom}</h3><div className="sub">{fmt(t.cotisation)} FCFA / mois · {n} participants · position {t.position}{t.goalId && gname(st, t.goalId) && <span className="badge p"><Target size={11} />{gname(st, t.goalId)}</span>}</div></div>
-                  <div style={{ display: 'flex' }}><button className="ib" onClick={() => open('tontine', t)}><Pencil size={15} /></button><button className="ib" onClick={() => remove('tontines', t.id)}><Trash2 size={15} /></button></div></div>
-                <div className="card-b">
-                  <div className="meta" style={{ marginTop: 0 }}>
-                    <div><div className="muted" style={{ fontSize: 12 }}>Cagnotte</div><div style={{ fontWeight: 650, fontSize: 18 }} className="num">{fmt(t.cotisation * n)}</div></div>
-                    <div><div className="muted" style={{ fontSize: 12 }}>Réception</div><div style={{ fontWeight: 650, fontSize: 18, textTransform: 'capitalize' }}>{mLabel(recvKey, true)}</div></div>
-                    <div><div className="muted" style={{ fontSize: 12 }}>Cotisé</div><div style={{ fontWeight: 650, fontSize: 18 }} className="num">{fmt(paid * t.cotisation)}</div></div>
-                  </div>
-                  <div className="tl">{months.map((m, i) => {
-                    const ref = `tc:${t.id}:${m}`; const ok = !!st.done[ref];
-                    return (
-                      <div key={m} className={'m' + (ok ? ' paid' : '') + (i === +t.position - 1 ? ' me' : '')}>
-                        <button title={ok ? 'Annuler' : 'Marquer payée'} onClick={() => (ok ? undoRef(ref) : open('confirm', occ(m)))}>{ok ? <Check size={14} /> : i + 1}</button>
-                        <div className="l">{mLabel(m)}</div>
-                      </div>);
-                  })}</div>
-                  <div className="muted" style={{ fontSize: 12.5, marginTop: 12 }}>Cagnotte : {st.done[recvRef] ? <span className="badge ok">Reçue</span> : <span className="badge">À recevoir</span>}<span style={{ marginLeft: 8 }}>Contour bleu = ton tour.</span></div>
-                </div>
-              </div>);
-          })}</div>}
-      </div>
-    </>
-  );
-}
 
 // ================= CRÉANCES =================
-function Creances({ st, open, remove, undoRef }) {
-  const sec = (sens, title) => {
-    const list = st.creances.filter((c) => c.sens === sens);
-    const pend = list.flatMap((c) => creanceOccs(c)).filter((o) => !st.done[o.ref]).reduce((s, o) => s + o.amount, 0);
-    return (
-      <div className="card tbl" style={{ overflow: 'hidden' }}>
-        <div className="card-h"><div><h3>{title}</h3><div className="sub">{fcfa(pend)} en attente</div></div><button className="btn s sm" onClick={() => open('creance', { sens })}><Plus size={14} />Ajouter</button></div>
-        {list.length ? list.map((c) => {
-          const occ = creanceOccs(c); const paid = occ.filter((o) => st.done[o.ref]); const next = occ.find((o) => !st.done[o.ref]);
-          const ok = !next; const n = occ.length; const paidAmt = paid.reduce((s, o) => s + o.amount, 0);
-          return (
-            <div className="row" key={c.id}>
-              <div className="ic"><HandCoins size={16} /></div>
-              <div style={{ minWidth: 0, flex: 1 }}><div className="t">{c.nom}{n > 1 && <span className="badge">{paid.length}/{n} échéances</span>}</div>
-                <div className="s">{ok ? 'Soldé' : n > 1 ? `Prochaine : ${fmt(next.amount)} le ${dLabel(next.date)}` : `Prévu le ${dLabel(c.date)}`}{(() => { const t = c.initTx && st.transactions.find((x) => x.id === c.initTx); return t ? ` · ${sens === 'in' ? 'prêté' : 'reçu'} le ${dLabel(t.date)} ${sens === 'in' ? 'depuis' : 'sur'} ${accName(st, t.accountId)}` : ''; })()}{!ok && c.lastRelance ? ` · relancé le ${dLabel(c.lastRelance)}` : ''}{!ok && next && next.date < todayISO() ? <span className="badge warn" style={{ marginLeft: 6 }}>En retard</span> : null}</div>
-                {n > 1 && <div className="bar" style={{ height: 5, marginTop: 6, maxWidth: 260 }}><i style={{ width: (paidAmt / c.montant) * 100 + '%', background: sens === 'in' ? 'var(--pos)' : 'var(--neg)' }} /></div>}</div>
-              <div className={'a ' + (sens === 'in' ? 'pos' : 'neg')}>{fmt(c.montant)}{n > 1 && <div className="muted" style={{ fontSize: 11.5, fontWeight: 500, textAlign: 'right' }}>reste {fmt(c.montant - paidAmt)}</div>}</div>
-              {ok ? <><span className="badge ok">{sens === 'in' ? 'Reçu' : 'Payé'}</span><button className="ib" title="Annuler la dernière échéance" onClick={() => undoRef(paid[paid.length - 1].ref)}><Undo2 size={15} /></button></>
-                : <>{sens === 'in' && <button className="ib wa" title="Relancer sur WhatsApp" onClick={() => open('relance', c)}><MessageCircle size={15} /></button>}<button className="btn s sm" onClick={() => open('confirm', next)}>{sens === 'in' ? 'Marquer reçu' : 'Marquer payé'}{n > 1 ? ` (${paid.length + 1}/${n})` : ''}</button></>}
-              <button className="ib" onClick={() => open('creance', c)}><Pencil size={15} /></button>
-              <button className="ib" onClick={() => remove('creances', c.id)}><Trash2 size={15} /></button>
-            </div>);
-        }) : <Empty title="Rien à signaler" text={sens === 'in' ? "Personne ne te doit d'argent." : 'Tu ne dois rien.'} />}
-      </div>);
-  };
-  return (
-    <>
-      <Top title="Créances & dettes" sub="Argent prêté et emprunté" />
-      <div className="content"><div className="grid g2">{sec('in', 'On me doit')}{sec('out', 'Je dois')}</div></div>
-    </>
-  );
-}
 
 // ================= OPÉRATIONS =================
 function Operations({ st, open, delTx, doExcel, focusSearch }) {
@@ -877,8 +1063,8 @@ function Operations({ st, open, delTx, doExcel, focusSearch }) {
             <div className="search"><Search size={15} /><input ref={sRef} placeholder="Rechercher (libellé, montant, compte…)  Ctrl+K" value={q} onChange={(e) => setQ(e.target.value)} />{q && <button className="ib" onClick={() => setQ('')}><X size={13} /></button>}</div>
           </div>
           <div className="card-h" style={{ paddingTop: 12 }}>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><select className="inp" style={{ width: 170, padding: '7px 10px' }} value={acc} onChange={(e) => setAcc(e.target.value)}><option value="all">Tous les comptes</option>{st.accounts.map((a) => <option key={a.id} value={a.id}>{a.nom}</option>)}</select>
-            <select className="inp" style={{ width: 180, padding: '7px 10px' }} value={cat} onChange={(e) => setCat(e.target.value)}><option value="all">Toutes les catégories</option>{catsHere.map((c) => <option key={c} value={c}>{CATS[c]}</option>)}</select></div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><Sel className="inp" style={{ width: 170, padding: '7px 10px' }} value={acc} onChange={(e) => setAcc(e.target.value)}><option value="all">Tous les comptes</option>{st.accounts.map((a) => <option key={a.id} value={a.id}>{a.nom}</option>)}</Sel>
+            <Sel className="inp" style={{ width: 180, padding: '7px 10px' }} value={cat} onChange={(e) => setCat(e.target.value)}><option value="all">Toutes les catégories</option>{catsHere.map((c) => <option key={c} value={c}>{CATS[c]}</option>)}</Sel></div>
             <div className="seg">{[['all', 'Tout'], ['in', 'Entrées'], ['out', 'Dépenses'], ['save', 'Épargne'], ['move', 'Virements']].map(([k, l]) => <button key={k} className={f === k ? 'on' : ''} onClick={() => setF(k)}>{l}</button>)}</div>
           </div>
           {(qq || cat !== 'all') && <div className="muted" style={{ padding: '0 22px 12px', fontSize: 12.5 }}>{list.length} résultat{list.length > 1 ? 's' : ''} · solde {tot >= 0 ? '+' : '−'}{fmt(Math.abs(tot))} FCFA</div>}
@@ -1038,8 +1224,8 @@ function TransferModal({ init, st, bal, onClose, onOk }) {
   return (
     <Modal title="Transfert" onClose={onClose} footer={<><button className="btn s" onClick={onClose}>Annuler</button><button className="btn p" disabled={!ok} onClick={() => onOk(from, to, +m, d)}>Transférer</button></>}>
       <div className="form f2">
-        <Field label="De" hint={`Disponible : ${fcfa(solde(from))}`}><select className="inp" value={from} onChange={(e) => setFrom(e.target.value)}>{opts.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></Field>
-        <Field label="Vers" hint={`Solde : ${fcfa(solde(to))}`}><select className="inp" value={to} onChange={(e) => setTo(e.target.value)}>{opts.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></Field>
+        <Field label="De" hint={`Disponible : ${fcfa(solde(from))}`}><Sel className="inp" value={from} onChange={(e) => setFrom(e.target.value)}>{opts.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</Sel></Field>
+        <Field label="Vers" hint={`Solde : ${fcfa(solde(to))}`}><Sel className="inp" value={to} onChange={(e) => setTo(e.target.value)}>{opts.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</Sel></Field>
         <Field label="Montant (FCFA)" hint={over ? 'Montant supérieur au solde de la source' : from === to ? 'Choisis deux comptes différents' : null}><input autoFocus className="inp num" type="number" value={m} onChange={(e) => setM(e.target.value)} /></Field>
         <Field label="Date"><input className="inp" type="date" value={d} onChange={(e) => setD(e.target.value)} /></Field>
       </div>
@@ -1101,8 +1287,8 @@ function TxModal({ init, st, bal, goals, onClose, onOk, onFav }) {
           <Field label="Frais (FCFA)" hint={!t.fraisManual && autoFee ? `Calculés : ${fromAcc.feePct ? `${fromAcc.feePct} %` : ''}${fromAcc.feePct && fromAcc.feeFix ? ' + ' : ''}${fromAcc.feeFix ? `${fmt(fromAcc.feeFix)} FCFA` : ''} (${fromAcc.nom})` : 'Facultatif · enregistrés comme dépense'}><input className="inp num" type="number" value={fraisVal} onChange={(e) => u({ frais: e.target.value, fraisManual: true })} /></Field>
           <Field label="Libellé"><input className="inp" placeholder="Facultatif" value={t.label} onChange={(e) => u({ label: e.target.value })} /></Field>
         </>) : (<>
-          {isG ? <Field label="Objectif">{goals.length ? <select className="inp" value={t.goalId} onChange={(e) => u({ goalId: e.target.value })}>{goals.map((g) => <option key={g.id} value={g.id}>{g.nom}</option>)}</select> : <span className="hint">Crée d'abord un objectif.</span>}</Field>
-            : <Field label="Catégorie"><select className="inp" value={t.cat} onChange={(e) => u({ cat: e.target.value })}>{cats.map((c) => <option key={c} value={c}>{CATS[c]}</option>)}</select></Field>}
+          {isG ? <Field label="Objectif">{goals.length ? <Sel className="inp" value={t.goalId} onChange={(e) => u({ goalId: e.target.value })}>{goals.map((g) => <option key={g.id} value={g.id}>{g.nom}</option>)}</Sel> : <span className="hint">Crée d'abord un objectif.</span>}</Field>
+            : <Field label="Catégorie"><Sel className="inp" value={t.cat} onChange={(e) => u({ cat: e.target.value })}>{cats.map((c) => <option key={c} value={c}>{CATS[c]}</option>)}</Sel></Field>}
           <Field label="Libellé"><input className="inp" placeholder="Facultatif" value={t.label} onChange={(e) => u({ label: e.target.value })} /></Field>
           {!isG && <Field label={t.kind === 'in' ? 'Reçu sur' : 'Payé depuis'} span><AccPicker st={st} value={t.accountId} onChange={(v) => u({ accountId: v })} /></Field>}
         </>)}
@@ -1138,13 +1324,13 @@ function ItemModal({ item, goals, st, onClose, onOk }) {
       <div className="form f2">
         <Field label="Libellé" span><input className="inp" autoFocus value={it.label} placeholder={it.kind === 'in' ? 'ex. Salaire' : it.kind === 'out' ? 'ex. Loyer' : 'ex. Épargne mensuelle'} onChange={(e) => u({ label: e.target.value })} /></Field>
         {it.kind === 'save'
-          ? <Field label="Objectif">{goals.length ? <select className="inp" value={it.goalId} onChange={(e) => u({ goalId: e.target.value })}>{goals.map((g) => <option key={g.id} value={g.id}>{g.nom}</option>)}</select> : <span className="hint">Crée d'abord un objectif.</span>}</Field>
-          : <Field label="Catégorie"><select className="inp" value={it.cat} onChange={(e) => u({ cat: e.target.value })}>{cats.map((c) => <option key={c} value={c}>{CATS[c]}</option>)}</select></Field>}
+          ? <Field label="Objectif">{goals.length ? <Sel className="inp" value={it.goalId} onChange={(e) => u({ goalId: e.target.value })}>{goals.map((g) => <option key={g.id} value={g.id}>{g.nom}</option>)}</Sel> : <span className="hint">Crée d'abord un objectif.</span>}</Field>
+          : <Field label="Catégorie"><Sel className="inp" value={it.cat} onChange={(e) => u({ cat: e.target.value })}>{cats.map((c) => <option key={c} value={c}>{CATS[c]}</option>)}</Sel></Field>}
         {it.variable ? (
           <Field label="Montant min – max (FCFA)"><div style={{ display: 'flex', gap: 8 }}><input className="inp num" type="number" placeholder="Min" value={it.min ?? ''} onChange={(e) => u({ min: e.target.value })} /><input className="inp num" type="number" placeholder="Max" value={it.max ?? ''} onChange={(e) => u({ max: e.target.value })} /></div></Field>
         ) : <Field label="Montant (FCFA)"><input className="inp num" type="number" value={it.montant} onChange={(e) => u({ montant: e.target.value })} /></Field>}
-        <Field label="Fréquence"><select className="inp" value={freq} onChange={(e) => { const v = e.target.value; if (v === 'once') u({ fin: it.debut, every: 1 }); else u({ every: +v, fin: once ? null : it.fin }); }}>
-          <option value="1">Mensuel</option><option value="2">Tous les 2 mois</option><option value="3">Trimestriel</option><option value="once">Ponctuel</option></select></Field>
+        <Field label="Fréquence"><Sel className="inp" value={freq} onChange={(e) => { const v = e.target.value; if (v === 'once') u({ fin: it.debut, every: 1 }); else u({ every: +v, fin: once ? null : it.fin }); }}>
+          <option value="1">Mensuel</option><option value="2">Tous les 2 mois</option><option value="3">Trimestriel</option><option value="once">Ponctuel</option></Sel></Field>
         <Field label="Jour du mois"><input className="inp num" type="number" min={1} max={31} value={it.jour} onChange={(e) => u({ jour: e.target.value })} /></Field>
         <Field label={once ? 'Mois' : 'Premier mois'}><input className="inp" type="month" value={it.debut} onChange={(e) => e.target.value && u(once ? { debut: e.target.value, fin: e.target.value } : { debut: e.target.value })} /></Field>
         {!once && <Field label="Dernier mois" hint="Laisser vide si sans fin"><input className="inp" type="month" value={it.fin || ''} onChange={(e) => u({ fin: e.target.value || null })} /></Field>}
@@ -1188,7 +1374,7 @@ function TontineModal({ t, goals, onClose, onOk }) {
         <Field label="Ta position" hint="Mois où tu reçois la cagnotte"><input className="inp num" type="number" value={x.position} onChange={(e) => u({ position: e.target.value })} /></Field>
         <Field label="Jour de versement"><input className="inp num" type="number" min={1} max={31} value={x.jour} onChange={(e) => u({ jour: e.target.value })} /></Field>
         <Field label="Premier mois"><input className="inp" type="month" value={x.debut} onChange={(e) => e.target.value && u({ debut: e.target.value })} /></Field>
-        <Field label="Objectif lié" hint="La cagnotte sera versée directement sur cet objectif"><select className="inp" value={x.goalId || ''} onChange={(e) => u({ goalId: e.target.value || undefined })}><option value="">Aucun (solde disponible)</option>{goals.map((g) => <option key={g.id} value={g.id}>{g.nom}</option>)}</select></Field>
+        <Field label="Objectif lié" hint="La cagnotte sera versée directement sur cet objectif"><Sel className="inp" value={x.goalId || ''} onChange={(e) => u({ goalId: e.target.value || undefined })}><option value="">Aucun (solde disponible)</option>{goals.map((g) => <option key={g.id} value={g.id}>{g.nom}</option>)}</Sel></Field>
       </div>
     </Modal>
   );
@@ -1466,7 +1652,7 @@ function Budgets({ st, set, open, updateTx }) {
                 <div className="bulk-row" key={t.id}>
                   <DChip iso={t.date} />
                   <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 550, fontSize: 13.5 }}>{t.label}</div><div className="muted" style={{ fontSize: 12 }}>{accName(st, t.accountId)}</div></div>
-                  <select className="inp acc-sel" title="Changer de catégorie" value={t.cat} onChange={(e) => updateTx(t.id, { cat: e.target.value, label: t.label === CATS[t.cat] ? CATS[e.target.value] : t.label })}>{CATS_OUT.map((x) => <option key={x} value={x}>{CATS[x]}</option>)}</select>
+                  <Sel className="inp acc-sel" title="Changer de catégorie" value={t.cat} onChange={(e) => updateTx(t.id, { cat: e.target.value, label: t.label === CATS[t.cat] ? CATS[e.target.value] : t.label })}>{CATS_OUT.map((x) => <option key={x} value={x}>{CATS[x]}</option>)}</Sel>
                   <b className="neg num" style={{ minWidth: 70, textAlign: 'right' }}>−{fmt(t.montant)}</b>
                   <button className="ib" title="Modifier" onClick={() => open('tx', { ...t, editId: t.id, montant: String(t.montant) })}><Pencil size={14} /></button>
                 </div>))}
@@ -1622,7 +1808,7 @@ function Scenarios({ st, set, rows }) {
         <Modal title={SCEN_TYPES[adj.type]} onClose={() => setAdj(null)} onEnter={() => {}}
           footer={<><button className="btn s" onClick={() => setAdj(null)}>Annuler</button><button className="btn p" disabled={(adj.type !== 'stop' && !(+adj.montant > 0)) || ((adj.type === 'stop' || adj.type === 'change') && !adj.itemId)} onClick={() => { upd({ ...sc, adjustments: [...sc.adjustments, { ...adj, montant: +adj.montant }] }); setAdj(null); }}>Ajouter</button></>}>
           <div className="form f2">
-            {(adj.type === 'stop' || adj.type === 'change') && <Field label="Flux" span><select className="inp" value={adj.itemId} onChange={(e) => setAdj({ ...adj, itemId: e.target.value })}>{st.items.map((i) => <option key={i.id} value={i.id}>{i.label} · {fmt(i.montant)}</option>)}</select></Field>}
+            {(adj.type === 'stop' || adj.type === 'change') && <Field label="Flux" span><Sel className="inp" value={adj.itemId} onChange={(e) => setAdj({ ...adj, itemId: e.target.value })}>{st.items.map((i) => <option key={i.id} value={i.id}>{i.label} · {fmt(i.montant)}</option>)}</Sel></Field>}
             {(adj.type === 'once_out' || adj.type === 'once_in') && <Field label="Libellé" span><input className="inp" autoFocus placeholder={adj.type === 'once_out' ? 'ex. Achat voiture, Tabaski' : 'ex. Prime, mission'} value={adj.label} onChange={(e) => setAdj({ ...adj, label: e.target.value })} /></Field>}
             {adj.type !== 'stop' && <Field label={adj.type === 'budget' ? 'Nouveau budget mensuel (FCFA)' : adj.type === 'change' ? 'Nouveau montant (FCFA)' : 'Montant (FCFA)'}><input className="inp num" type="number" value={adj.montant} onChange={(e) => setAdj({ ...adj, montant: e.target.value })} /></Field>}
             {adj.type !== 'budget' && <Field label={adj.type === 'stop' ? 'Dernier mois perçu / payé : le mois précédent' : 'Mois'}><input className="inp" type="month" value={adj.mois} onChange={(e) => e.target.value && setAdj({ ...adj, mois: e.target.value })} /></Field>}
@@ -1708,7 +1894,7 @@ function BulkModal({ list, st, onClose, onOk }) {
             <DChip iso={r.date} late={r.late} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div className="t" style={{ fontWeight: 550, fontSize: 13.5 }}>{r.label}</div>
-              {r.kind !== 'save' && <select className="inp acc-sel" value={r.accountId} disabled={!r.on} onChange={(e) => u(i, { accountId: e.target.value })}>{st.accounts.map((a) => <option key={a.id} value={a.id}>{r.kind === 'in' ? 'Reçu sur ' : 'Payé depuis '}{a.nom}</option>)}</select>}
+              {r.kind !== 'save' && <Sel className="inp acc-sel" value={r.accountId} disabled={!r.on} onChange={(e) => u(i, { accountId: e.target.value })}>{st.accounts.map((a) => <option key={a.id} value={a.id}>{r.kind === 'in' ? 'Reçu sur ' : 'Payé depuis '}{a.nom}</option>)}</Sel>}
             </div>
             <span className={tone(r.kind)} style={{ fontWeight: 650 }}>{sign(r.kind)}</span>
             <input className="inp num" style={{ width: 120, textAlign: 'right' }} type="number" disabled={!r.on} value={r.montant} onChange={(e) => u(i, { montant: e.target.value })} />
@@ -1754,7 +1940,7 @@ function GoalDoneModal({ g, st, bal, onClose, onOk }) {
           {spend ? (
             <div className="form f2">
               <Field label="Montant dépensé (FCFA)" hint={+montant > v ? `Maximum ${fmt(v)}` : rest > 0 ? `${fmt(rest)} resteront sur l'objectif` : null}><input className="inp num" type="number" value={montant} onChange={(e) => setMontant(e.target.value)} /></Field>
-              <Field label="Catégorie"><select className="inp" value={cat} onChange={(e) => setCat(e.target.value)}>{CATS_OUT.map((c) => <option key={c} value={c}>{CATS[c]}</option>)}</select></Field>
+              <Field label="Catégorie"><Sel className="inp" value={cat} onChange={(e) => setCat(e.target.value)}>{CATS_OUT.map((c) => <option key={c} value={c}>{CATS[c]}</option>)}</Sel></Field>
               <Field label="Libellé" span><input className="inp" value={label} onChange={(e) => setLabel(e.target.value)} /></Field>
               <Field label="Payé depuis" span><AccPicker st={st} value={accountId} onChange={setAcc} /></Field>
               {rest > 0 && <label className="switch" style={{ gridColumn: '1 / -1' }}><input type="checkbox" checked={release} onChange={(e) => setRelease(e.target.checked)} />Remettre le reste ({fmt(rest)} FCFA) dans le solde disponible</label>}
@@ -1844,8 +2030,8 @@ function QuickAdd({ st, addTx, setSettings, setToast, open, compact }) {
         <button className="btn p" onClick={add} title="Ajouter (Entrée)"><Plus size={16} /></button>
       </div>
       <div className="qbC-row">
-        <label className="dsel"><span className="bud-ic">{React.createElement(catIcon(cat), { size: 13 })}</span><select value={cat} onChange={(e) => pick(e.target.value)}>{CATS_VIE.map((c) => <option key={c} value={c}>{CATS[c]}</option>)}</select><ChevronDown size={13} /></label>
-        <label className="dsel"><i className="dot" style={{ background: (st.accounts.find((a) => a.id === acc) || {}).couleur }} /><select value={acc} onChange={(e) => setAcc(e.target.value)}>{st.accounts.map((a) => <option key={a.id} value={a.id}>{a.nom}</option>)}</select><ChevronDown size={13} /></label>
+        <label className="dsel"><span className="bud-ic">{React.createElement(catIcon(cat), { size: 13 })}</span><Sel value={cat} onChange={(e) => pick(e.target.value)}>{CATS_VIE.map((c) => <option key={c} value={c}>{CATS[c]}</option>)}</Sel><ChevronDown size={13} /></label>
+        <label className="dsel"><i className="dot" style={{ background: (st.accounts.find((a) => a.id === acc) || {}).couleur }} /><Sel value={acc} onChange={(e) => setAcc(e.target.value)}>{st.accounts.map((a) => <option key={a.id} value={a.id}>{a.nom}</option>)}</Sel><ChevronDown size={13} /></label>
       </div>
     </div>
   );
@@ -2011,8 +2197,8 @@ function SmsModal({ text, st, bal, onClose, onOk }) {
             </div>
             <div className="sms-l2">
               <input className="inp" type="date" disabled={!r.on} value={r.date} onChange={(e) => u(r.i, { date: e.target.value })} />
-              <select className="inp" disabled={!r.on} value={r.cat} onChange={(e) => u(r.i, { cat: e.target.value })}>{(r.kind === 'in' ? CATS_IN : CATS_OUT).map((c) => <option key={c} value={c}>{CATS[c]}</option>)}</select>
-              <select className={'inp' + (r.guessed ? ' guess' : '')} title={r.guessed ? 'Compte non reconnu dans le SMS : vérifie' : ''} disabled={!r.on} value={r.accountId} onChange={(e) => u(r.i, { accountId: e.target.value, guessed: false })}>{st.accounts.map((a) => <option key={a.id} value={a.id}>{a.nom}</option>)}</select>
+              <Sel className="inp" disabled={!r.on} value={r.cat} onChange={(e) => u(r.i, { cat: e.target.value })}>{(r.kind === 'in' ? CATS_IN : CATS_OUT).map((c) => <option key={c} value={c}>{CATS[c]}</option>)}</Sel>
+              <Sel className={'inp' + (r.guessed ? ' guess' : '')} title={r.guessed ? 'Compte non reconnu dans le SMS : vérifie' : ''} disabled={!r.on} value={r.accountId} onChange={(e) => u(r.i, { accountId: e.target.value, guessed: false })}>{st.accounts.map((a) => <option key={a.id} value={a.id}>{a.nom}</option>)}</Sel>
               {r.kind === 'out' && <label className="sms-fee">Frais <input className="inp num" type="number" disabled={!r.on} value={r.frais} placeholder="0" onChange={(e) => u(r.i, { frais: e.target.value })} /></label>}
               {r.dup && <span className="badge warn" style={{ marginLeft: 0 }}>Déjà saisie ?</span>}
               {r.guessed && <span className="badge warn" style={{ marginLeft: 0 }}>Compte à vérifier</span>}
@@ -2089,7 +2275,7 @@ function TriModal({ st, updateTx, onClose }) {
             <DChip iso={t.date} />
             <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 550, fontSize: 13.5 }}>{t.label}</div><div className="muted" style={{ fontSize: 12 }}>{accName(st, t.accountId)} · <b className="num" style={{ color: 'var(--ink)' }}>{fmt(t.montant)}</b></div></div>
             <div className="tri-tiles">{others.map((c) => <button key={c} title={CATS[c]} onClick={() => moveTo(t, c)}>{React.createElement(catIcon(c), { size: 15 })}<span>{CATS[c].split(' ')[0]}</span></button>)}
-              <select className="inp acc-sel" value="" title="Autre catégorie" onChange={(e) => e.target.value && moveTo(t, e.target.value)}><option value="">Autre…</option>{CATS_OUT.filter((c) => !CATS_VIE.includes(c)).map((c) => <option key={c} value={c}>{CATS[c]}</option>)}</select></div>
+              <Sel className="inp acc-sel" value="" title="Autre catégorie" onChange={(e) => e.target.value && moveTo(t, e.target.value)}><option value="">Autre…</option>{CATS_OUT.filter((c) => !CATS_VIE.includes(c)).map((c) => <option key={c} value={c}>{CATS[c]}</option>)}</Sel></div>
           </div>))}
         {!list.length && <div className="empty" style={{ padding: 28 }}><CheckCheck size={20} style={{ color: 'var(--pos)' }} /><div style={{ marginTop: 6 }}>Tout est trié pour {mLabel(m, true)}.</div></div>}
       </div>
@@ -2126,8 +2312,8 @@ function HabitsModal({ st, onClose, onOk }) {
           <div className="bulk-row hab-row" key={h.id}>
             <input className="inp" style={{ flex: 1, minWidth: 110 }} placeholder="ex. Petit-déj" value={h.label} onChange={(e) => u(i, { label: e.target.value })} />
             <input className="inp num" style={{ width: 90, textAlign: 'right' }} type="number" value={h.montant} onChange={(e) => u(i, { montant: e.target.value })} />
-            <select className="inp acc-sel" value={h.cat} onChange={(e) => u(i, { cat: e.target.value })}>{CATS_VIE.map((c) => <option key={c} value={c}>{CATS[c]}</option>)}</select>
-            <select className="inp acc-sel" value={h.jours || 'tous'} onChange={(e) => u(i, { jours: e.target.value })}>{Object.entries(JOURS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
+            <Sel className="inp acc-sel" value={h.cat} onChange={(e) => u(i, { cat: e.target.value })}>{CATS_VIE.map((c) => <option key={c} value={c}>{CATS[c]}</option>)}</Sel>
+            <Sel className="inp acc-sel" value={h.jours || 'tous'} onChange={(e) => u(i, { jours: e.target.value })}>{Object.entries(JOURS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</Sel>
             <button className="ib" title="Supprimer" onClick={() => setList(list.filter((_, j) => j !== i))}><Trash2 size={14} /></button>
           </div>))}
       </div>
