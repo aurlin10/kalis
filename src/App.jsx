@@ -1227,12 +1227,31 @@ function CreanceModal({ c, st, onClose, onOk }) {
 // ================= COMPTES (Wave, Orange Money, Djamo, Mixx) =========
 // =====================================================================
 function Comptes({ st, set, bal, open, upsert, remove }) {
-  const cur = mkey(new Date());
-  const flux = (id) => {
-    const tx = st.transactions.filter((t) => t.date.startsWith(cur));
-    const inn = tx.filter((t) => (t.kind === 'in' && (t.accountId || st.accounts[0]?.id) === id) || (t.kind === 'move' && t.toAccountId === id)).reduce((s, t) => s + t.montant, 0);
-    const out = tx.filter((t) => (t.kind === 'out' && (t.accountId || st.accounts[0]?.id) === id) || (t.kind === 'move' && t.accountId === id)).reduce((s, t) => s + t.montant, 0);
-    return { inn, out };
+  const now = new Date(); const cur = mkey(now); const today = todayISO();
+  const def = st.accounts[0]?.id;
+  const A = (id) => (st.accounts.some((a) => a.id === id) ? id : def);
+  const delta = (t, id) => {
+    const m = +t.montant || 0;
+    if (t.kind === 'in' && A(t.accountId) === id) return m;
+    if (t.kind === 'out' && A(t.accountId) === id) return -m;
+    if (t.kind === 'move') return (A(t.toAccountId) === id ? m : 0) - (A(t.accountId) === id ? m : 0);
+    return 0;
+  };
+  // Historique de solde sur 30 jours, par compte
+  const days = Array.from({ length: 30 }, (_, i) => { const d = new Date(now); d.setDate(d.getDate() - 29 + i); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; });
+  const hist = (id) => { const a = st.accounts.find((x) => x.id === id); let v = +a.initial || 0; const sorted = [...st.transactions].sort((x, y) => x.date.localeCompare(y.date)); let j = 0; return days.map((d) => { while (j < sorted.length && sorted[j].date <= d) { v += delta(sorted[j], id); j++; } return v; }); };
+  const monthTx = st.transactions.filter((t) => t.date.startsWith(cur));
+  const flux = (id) => { let inn = 0, out = 0; for (const t of monthTx) { const d = delta(t, id); if (d > 0) inn += d; else out -= d; } return { inn, out }; };
+  const lastOps = (id) => st.transactions.filter((t) => delta(t, id) !== 0).sort((x, y) => y.date.localeCompare(x.date)).slice(0, 3);
+  const pos = st.accounts.map((a) => ({ a, v: Math.max(0, bal.accounts[a.id] || 0) }));
+  const totPos = pos.reduce((s, x) => s + x.v, 0) || 1;
+  const fees = monthTx.filter((t) => t.kind === 'out' && t.cat === 'frais').reduce((s, t) => s + t.montant, 0);
+  const moves = st.transactions.filter((t) => t.kind === 'move').sort((x, y) => y.date.localeCompare(x.date));
+  const movesM = moves.filter((t) => t.date.startsWith(cur));
+  const Spark = ({ vals, color }) => {
+    const W = 220, H = 44, mn = Math.min(...vals), mx = Math.max(...vals), r = mx - mn || 1;
+    const pts = vals.map((v, i) => `${(i / (vals.length - 1)) * W},${H - 4 - ((v - mn) / r) * (H - 8)}`).join(' ');
+    return <svg className="acc-spark" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none"><polyline points={`0,${H} ${pts} ${W},${H}`} fill={color} fillOpacity=".12" stroke="none" /><polyline points={pts} fill="none" stroke={color} strokeWidth="2" vectorEffect="non-scaling-stroke" strokeLinejoin="round" /></svg>;
   };
   return (
     <>
@@ -1245,35 +1264,64 @@ function Comptes({ st, set, bal, open, upsert, remove }) {
       <div className="content">
         {st.migratedV3 && (
           <div className="alert info"><div className="chip-ic"><Info size={16} /></div>
-            <div style={{ flex: 1 }}>Ton solde de départ a été placé sur <b>{st.accounts[0]?.nom}</b>. Indique le solde de départ réel de chaque compte avec le crayon : le total doit correspondre à ce que tu avais au {dLabel(st.dateInitiale)}.</div>
-            <button className="btn s sm" onClick={() => set({ migratedV3: false })}>C'est fait</button></div>
-        )}
-        <div className="grid g4">
+            <div style={{ flex: 1 }}>Ton solde de départ a été placé sur <b>{st.accounts[0]?.nom}</b>. Indique le solde de départ réel de chaque compte avec le crayon.</div>
+            <button className="btn s sm" onClick={() => set({ migratedV3: false })}>C'est fait</button></div>)}
+
+        {/* ---- Synthèse ---- */}
+        <div className="acc-sum">
+          <div className="dk dk-hero acc-total">
+            <div className="dk-top"><span>Total sur les comptes</span><span className="hero-pill up">{st.accounts.length} comptes</span></div>
+            <div className="dk-v num">{fmt(bal.comptes)}<small>FCFA</small></div>
+            <div className="acc-split">{pos.filter((x) => x.v > 0).map(({ a, v }) => <i key={a.id} title={`${a.nom} · ${fmt(v)} (${Math.round((v / totPos) * 100)} %)`} style={{ width: (v / totPos) * 100 + '%', background: a.couleur }} />)}</div>
+            <div className="acc-legend">{pos.filter((x) => x.v > 0).sort((x, y) => y.v - x.v).map(({ a, v }) => <span key={a.id}><i style={{ background: a.couleur }} />{a.nom} <b>{Math.round((v / totPos) * 100)} %</b></span>)}</div>
+            <svg className="dk-wave" viewBox="0 0 200 60" preserveAspectRatio="none"><path d="M0 45 C40 30 60 52 100 34 S160 18 200 26 L200 60 L0 60 Z" /></svg>
+          </div>
+          <div className="dk">
+            <div className="dk-top"><span className="dk-ic"><Wallet size={15} /></span><span>Disponible</span></div>
+            <div className="dk-v num">{fmt(bal.dispo)}<small>FCFA</small></div>
+            <div className="dk-f">Comptes moins l'épargne réservée à tes objectifs ({fmt(bal.comptes - bal.dispo)})</div>
+          </div>
+          <div className="dk">
+            <div className="dk-top"><span className="dk-ic"><ArrowLeftRight size={15} /></span><span>Virements <em className="dk-p">mois</em></span></div>
+            <div className="dk-v num">{movesM.length}<small>{fmt(movesM.reduce((s, t) => s + t.montant, 0))} FCFA déplacés</small></div>
+            <div className="dk-f">Frais de transfert ce mois : <b className="num">{fmt(fees)}</b> FCFA</div>
+          </div>
+        </div>
+
+        {/* ---- Cartes de comptes ---- */}
+        <div className="acc-grid">
           {st.accounts.map((a) => {
-            const f = flux(a.id); const v = bal.accounts[a.id] || 0;
+            const f = flux(a.id); const v = bal.accounts[a.id] || 0; const h = hist(a.id); const d30 = v - h[0];
             return (
-              <div className="card acc-card" key={a.id}>
-                <div className="acc-top">
+              <div className={'card accB' + (v < 0 ? ' neg' : '')} key={a.id} style={{ '--acc': a.couleur }}>
+                <div className="accB-h">
                   <div className="acc-badge" style={{ background: a.couleur }}>{a.nom.slice(0, 1)}</div>
-                  <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 650 }}>{a.nom}</div><div className="muted" style={{ fontSize: 12 }}>Départ : {fmt(a.initial)}</div></div>
-                  <button className="ib" title="Ajuster sur le solde réel" onClick={() => open('adjust', { accountId: a.id })}><Scale size={15} /></button>
-                  <button className="ib" onClick={() => open('account', a)}><Pencil size={15} /></button>
+                  <div style={{ flex: 1, minWidth: 0 }}><div className="accB-n">{a.nom}</div><div className="muted" style={{ fontSize: 12 }}>{Math.round((Math.max(0, v) / totPos) * 100)} % de ton argent{+a.feePct || +a.feeFix ? ` · frais ${a.feePct ? a.feePct + ' %' : ''}${a.feePct && a.feeFix ? ' + ' : ''}${a.feeFix ? fmt(a.feeFix) : ''}` : ''}</div></div>
+                  <button className="ib" title="Modifier" onClick={() => open('account', a)}><Pencil size={15} /></button>
                 </div>
-                <div className={'acc-v num' + (v < 0 ? ' neg' : '')}>{fmt(v)} <small>FCFA</small></div>
-                <div className="acc-f"><span className="pos">+{short(f.inn)}</span><span className="neg">−{short(f.out)}</span><span className="muted">ce mois</span></div>
+                <div className={'accB-v num' + (v < 0 ? ' neg' : '')}>{fmt(v)}<small>FCFA</small></div>
+                <div className="accB-d"><span className={d30 >= 0 ? 'pos' : 'neg'}>{d30 >= 0 ? '↑' : '↓'} {fmt(Math.abs(d30))}</span><span className="muted">sur 30 jours</span></div>
+                <Spark vals={h} color={a.couleur} />
+                <div className="accB-f"><div><span className="muted">Entrées · mois</span><b className="num pos">+{fmt(f.inn)}</b></div><div><span className="muted">Sorties · mois</span><b className="num neg">−{fmt(f.out)}</b></div></div>
+                <div className="accB-ops">{lastOps(a.id).map((t) => { const d = delta(t, a.id); return <div key={t.id}><span>{t.label}</span><b className={'num ' + (d > 0 ? 'pos' : '')}>{d > 0 ? '+' : '−'}{fmt(Math.abs(d))}</b></div>; })}{!lastOps(a.id).length && <div className="muted">Aucune opération</div>}</div>
+                <div className="accB-act">
+                  <button onClick={() => open('adjust', { accountId: a.id })}><Scale size={14} />Ajuster</button>
+                  <button onClick={() => open('tx', { kind: 'move', accountId: a.id, toAccountId: st.accounts.find((x) => x.id !== a.id)?.id })}><ArrowUpRight size={14} />Envoyer</button>
+                  <button onClick={() => open('tx', { kind: 'move', toAccountId: a.id, accountId: st.accounts.find((x) => x.id !== a.id)?.id })}><ArrowDownLeft size={14} />Recharger</button>
+                </div>
               </div>);
           })}
+          <button className="card accB add" onClick={() => open('account')}><Plus size={20} /><b>Ajouter un compte</b><span className="muted">Wave, Orange Money, Djamo, Mixx, Espèces…</span></button>
         </div>
-        <div className="grid g3 mt">
-          <Kpi icon={Smartphone} k="Total sur les comptes" v={<>{fmt(bal.comptes)}<small>FCFA</small></>} f="Argent réel, tous comptes confondus" />
-          <Kpi icon={PiggyBank} tone="s" k="Affecté aux objectifs" v={<>{fmt(bal.comptes - bal.dispo)}<small>FCFA</small></>} f="Inclus dans les comptes, réservé" />
-          <Kpi accent icon={Wallet} k="Solde disponible" v={<>{fmt(bal.dispo)}<small>FCFA</small></>} f="Comptes − épargne affectée" />
-        </div>
-        <Card title="Derniers virements" style={{ marginTop: 16 }} flush>
-          {st.transactions.filter((t) => t.kind === 'move').slice(0, 8).map((t) => (
-            <div className="row" key={t.id}><DChip iso={t.date} /><div><div className="t">{accName(st, t.accountId)} → {accName(st, t.toAccountId)}</div><div className="s">{t.label}</div></div><div className="a">{fmt(t.montant)}</div></div>
-          ))}
-          {!st.transactions.some((t) => t.kind === 'move') && <Empty icon={ArrowLeftRight} title="Aucun virement" text="Transfère de l'argent entre Wave, Orange Money, Djamo et Mixx." />}
+
+        {/* ---- Virements ---- */}
+        <Card title="Derniers virements" sub={moves.length ? `${moves.length} au total` : null} style={{ marginTop: 16 }} flush>
+          {moves.slice(0, 8).map((t) => { const fa = st.accounts.find((x) => x.id === t.accountId) || {}; const ta = st.accounts.find((x) => x.id === t.toAccountId) || {}; return (
+            <div className="row mv-row" key={t.id}><DChip iso={t.date} />
+              <div className="mv-path"><span><i style={{ background: fa.couleur }} />{fa.nom}</span><ArrowLeftRight size={13} className="muted" /><span><i style={{ background: ta.couleur }} />{ta.nom}</span></div>
+              <div className="s muted" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.label}</div>
+              <div className="a num">{fmt(t.montant)}</div></div>); })}
+          {!moves.length && <Empty icon={ArrowLeftRight} title="Aucun virement" text="Transfère de l'argent entre Wave, Orange Money, Djamo et Mixx." />}
         </Card>
       </div>
     </>
