@@ -6,7 +6,7 @@ import {
   MessageCircle, Scale, ClipboardPaste, ListChecks, Copy, Send, Command, FileBarChart,
 } from 'lucide-react';
 import {
-  AreaChart, Area, LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine,
+  AreaChart, Area, LineChart, Line, BarChart, Bar, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine,
 } from 'recharts';
 import logoUrl from '../build/logo.svg';
 import {
@@ -291,8 +291,8 @@ const Tip = ({ active, payload, label }) => {
   );
 };
 const PAL = {
-  light: { grid: '#EEF0F6', axis: '#9AA3B5', zero: '#E1E4EE', cursor: '#C7CBE0', track: '#EEF0F6', primary: '#4F46E5', sky: '#0EA5E9' },
-  dark: { grid: '#1E2536', axis: '#6B7489', zero: '#2A3245', cursor: '#3A4359', track: '#232A3B', primary: '#818CF8', sky: '#38BDF8' },
+  light: { grid: '#EEF0F6', axis: '#9AA3B5', zero: '#E1E4EE', cursor: '#C7CBE0', track: '#EEF0F6', track2: '#CDD1E0', primary: '#4F46E5', sky: '#0EA5E9' },
+  dark: { grid: '#1E2536', axis: '#6B7489', zero: '#2A3245', cursor: '#3A4359', track: '#232A3B', track2: '#3A4359', primary: '#818CF8', sky: '#38BDF8' },
 };
 const ThemeCtx = React.createContext(PAL.light);
 const useC = () => React.useContext(ThemeCtx);
@@ -372,14 +372,23 @@ function HeroChart({ rows }) {
   );
 }
 
+const isoD = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const addD = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+const monday = (d) => { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; };
+const PER_L = { j: ["Aujourd'hui", 'hier', 'par jour'], s: ['Cette semaine', 'la semaine dernière à date', 'par semaine'], m: ['Ce mois', 'le mois dernier à date', 'par mois'] };
+
 function Dashboard({ st, bal, rows, open, setPage, addTx, setSettings, setToast, upsert }) {
-  const today = todayISO();
+  const c = useC();
+  const now = new Date(); const today = todayISO();
   const up = upcoming(st);
-  const cur = mkey(new Date());
-  const nk = addMonths(cur, 1);
-  const vie = spentVie(st, cur);
+  const cur = mkey(now);
   const bt = budgetTotal(st);
   const goalsA = st.goals.filter(isGoalActive);
+  const dash = st.settings.dash || {};
+  const [per, setPer0] = useState(dash.per || 'm');
+  const [acc, setAcc] = useState('all');
+  const [cat, setCat] = useState('all');
+  const setPer = (p) => { setPer0(p); setSettings({ dash: { ...dash, per: p } }); };
   const steps = [
     { t: 'Comptes', s: `${fcfa(bal.comptes)} sur tes comptes`, done: true, a: ['Gérer', () => setPage('comptes')] },
     { t: 'Revenus et charges', s: 'Salaires, loyer, factures, abonnements…', done: st.items.length > 0, a: ['Ajouter un flux', () => open('item')] },
@@ -388,68 +397,74 @@ function Dashboard({ st, bal, rows, open, setPage, addTx, setSettings, setToast,
   ];
   const onboarding = steps.some((s) => !s.done);
 
-  const ms = monthStats(st, cur); const mp = monthPlan(st, cur);
-  const sortiesPrev = mp.charges + mp.vie;
-  const d7 = new Date(Date.now() - 6 * 864e5); const d7iso = `${d7.getFullYear()}-${String(d7.getMonth() + 1).padStart(2, '0')}-${String(d7.getDate()).padStart(2, '0')}`;
-  const outs = st.transactions.filter((t) => t.kind === 'out' && !CATS_DEBT.includes(t.cat));
-  const spentToday = outs.filter((t) => t.date === today).reduce((s, t) => s + t.montant, 0);
-  const spent7 = outs.filter((t) => t.date >= d7iso && t.date <= today).reduce((s, t) => s + t.montant, 0);
-  const nextSal = upcoming(st, 62).find((o) => o.kind === 'in' && (o.cat === 'salaire' || o.cat === 'pension') && o.date >= today);
-  const daysTo = nextSal ? Math.round((new Date(nextSal.date + 'T12:00:00') - new Date(today + 'T12:00:00')) / 864e5) : null;
-  const due = up.filter((o) => o.date <= today);
-  const dayLeft = daysIn(cur) - new Date().getDate() + 1;
-  const perDay = bt ? Math.max(0, bt - vie) / dayLeft : null;
+  // ---------- Dépenses filtrées (compte, catégorie) ----------
+  const accOf = (t) => t.accountId || st.accounts[0]?.id;
+  const outs = st.transactions.filter((t) => t.kind === 'out' && CATS_VIE.includes(t.cat) && (acc === 'all' || accOf(t) === acc));
+  const outsC = outs.filter((t) => cat === 'all' || t.cat === cat);
+  const sumR = (a, b, list = outsC) => list.filter((t) => t.date >= a && t.date <= b).reduce((s, t) => s + t.montant, 0);
+  const budBase = cat === 'all' ? bt : +st.budgets[cat] || 0;
+  const perDayB = budBase / daysIn(cur);
 
-  // À surveiller
+  let bars = [], ref = 0, curA, curB, prevA, prevB, daysLeftP = 1;
+  if (per === 'j') {
+    bars = Array.from({ length: 14 }, (_, i) => { const d = addD(now, i - 13); const k = isoD(d); return { na: k < (st.dateInitiale || ''), l: `${d.getDate()}/${d.getMonth() + 1}`, long: d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' }), v: sumR(k, k), cur: i === 13 }; });
+    ref = perDayB; curA = curB = today; prevA = prevB = isoD(addD(now, -1));
+  } else if (per === 's') {
+    const m0 = monday(now); const el = Math.round((now - m0) / 864e5);
+    bars = Array.from({ length: 8 }, (_, i) => { const a = addD(m0, (i - 7) * 7); const b = addD(a, 6); return { na: isoD(b) < (st.dateInitiale || ''), l: `${a.getDate()}/${a.getMonth() + 1}`, long: `Semaine du ${a.getDate()} au ${b.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}`, v: sumR(isoD(a), isoD(b)), cur: i === 7 }; });
+    ref = perDayB * 7; curA = isoD(m0); curB = today; prevA = isoD(addD(m0, -7)); prevB = isoD(addD(m0, el - 7)); daysLeftP = 7 - el;
+  } else {
+    bars = Array.from({ length: 6 }, (_, i) => { const k = addMonths(cur, i - 5); return { l: mLabel(k), long: mLabel(k, true), v: sumR(`${k}-01`, `${k}-31`), cur: i === 5, na: k < (st.dateInitiale || '').slice(0, 7) }; }).filter((b) => !b.na);
+    ref = budBase; curA = `${cur}-01`; curB = today; const pk = addMonths(cur, -1); prevA = `${pk}-01`; prevB = `${pk}-${String(Math.min(now.getDate(), daysIn(pk))).padStart(2, '0')}`; daysLeftP = daysIn(cur) - now.getDate() + 1;
+  }
+  const vCur = sumR(curA, curB); const vPrev = sumR(prevA, prevB);
+  const delta = vPrev > 0 ? Math.round(((vCur - vPrev) / vPrev) * 100) : null;
+  const past = bars.filter((b) => !b.cur && !b.na); const avg = past.length ? past.reduce((s, b) => s + b.v, 0) / past.length : 0;
+  const reste = ref - vCur;
+  const perDayLeft = per === 'j' ? Math.max(0, reste) : Math.max(0, reste) / Math.max(1, daysLeftP);
+  const catRows = CATS_VIE.map((k) => ({ k, a: sumR(curA, curB, outs.filter((t) => t.cat === k)), b: sumR(prevA, prevB, outs.filter((t) => t.cat === k)), bud: (+st.budgets[k] || 0) * (per === 'm' ? 1 : per === 's' ? 7 / daysIn(cur) : 1 / daysIn(cur)) }))
+    .filter((r) => r.a || r.b).sort((x, y) => y.a - x.a);
+
+  // ---------- À surveiller ----------
+  const due = up.filter((o) => o.date <= today);
   const alerts = [];
   const neg = rows.find((r) => r.dispo < 0);
   if (neg) alerts.push({ tone: 'r', icon: AlertTriangle, text: <>Solde négatif en <b>{mLabel(neg.key, true)}</b> ({fmt(neg.dispo)})</>, act: ['Voir', () => setPage('proj')] });
   const lateN = due.filter((o) => o.late).length;
   if (lateN) alerts.push({ tone: 'o', icon: Clock, text: <><b>{lateN}</b> échéance{lateN > 1 ? 's' : ''} en retard</>, act: ['Valider', () => open('bulk', due)] });
-  for (const c of CATS_VIE.filter((c) => +st.budgets[c] > 0 && spentCat(st, cur, c) > +st.budgets[c])) alerts.push({ tone: 'r', icon: Gauge, text: <>Budget <b>{CATS[c]}</b> dépassé de {fmt(spentCat(st, cur, c) - st.budgets[c])}</>, act: ['Voir', () => setPage('budgets')] });
-  for (const a of st.accounts.filter((a) => (bal.accounts[a.id] || 0) < 0)) alerts.push({ tone: 'r', icon: Smartphone, text: <><b>{a.nom}</b> est négatif ({fmt(bal.accounts[a.id])}) : une opération manque ?</>, act: ['Corriger', () => open('adjust', { accountId: a.id })] });
+  for (const k of CATS_VIE.filter((k) => +st.budgets[k] > 0 && spentCat(st, cur, k) > +st.budgets[k])) alerts.push({ tone: 'r', icon: Gauge, text: <><b>{CATS[k]}</b> dépassé de {fmt(spentCat(st, cur, k) - st.budgets[k])}</>, act: ['Voir', () => setPage('budgets')] });
+  for (const a of st.accounts.filter((a) => (bal.accounts[a.id] || 0) < 0)) alerts.push({ tone: 'r', icon: Smartphone, text: <><b>{a.nom}</b> négatif ({fmt(bal.accounts[a.id])})</>, act: ['Corriger', () => open('adjust', { accountId: a.id })] });
   const nVie = st.transactions.filter((t) => t.kind === 'out' && t.cat === 'vie' && t.date.startsWith(cur)).length;
-  if (nVie >= 3) alerts.push({ tone: 'p', icon: ListChecks, text: <><b>{nVie}</b> dépenses en Vie courante à trier</>, act: ['Trier', () => open('tri')] });
-  for (const g of goalsA) { const r = goalReach(rows, g); if (!r || monthDiff(g.echeance, r.key) > 0) alerts.push({ tone: 'o', icon: Target, text: <><b>{g.nom}</b> en retard sur l'échéance</>, act: ['Planifier', () => open('plan', g)] }); }
-  for (const g of goalsA.filter((g) => (bal.goals[g.id] || 0) >= g.montant)) alerts.push({ tone: 'g', icon: Trophy, text: <><b>{g.nom}</b> : montant atteint</>, act: ['Clôturer', () => open('goalDone', g)] });
-  for (const sg of amountSuggestions(st)) alerts.push({ tone: 'p', icon: RefreshCw, text: <><b>{sg.item.label}</b> : réel moyen {fmt(sg.avg)} (prévu {fmt(sg.item.montant)})</>, act: ['Ajuster', () => { upsert('items', { ...sg.item, montant: sg.avg }); setToast({ msg: `${sg.item.label} : ${fmt(sg.avg)} FCFA à partir de maintenant`, prev: st }); }] });
+  if (nVie >= 3) alerts.push({ tone: 'p', icon: ListChecks, text: <><b>{nVie}</b> dépenses à trier</>, act: ['Trier', () => open('tri')] });
+  for (const g of goalsA) { const r = goalReach(rows, g); if (!r || monthDiff(g.echeance, r.key) > 0) alerts.push({ tone: 'o', icon: Target, text: <><b>{g.nom}</b> en retard</>, act: ['Planifier', () => open('plan', g)] }); }
+  for (const g of goalsA.filter((g) => (bal.goals[g.id] || 0) >= g.montant)) alerts.push({ tone: 'g', icon: Trophy, text: <><b>{g.nom}</b> atteint</>, act: ['Clôturer', () => open('goalDone', g)] });
+  for (const sg of amountSuggestions(st)) alerts.push({ tone: 'p', icon: RefreshCw, text: <><b>{sg.item.label}</b> : réel {fmt(sg.avg)}</>, act: ['Ajuster', () => { upsert('items', { ...sg.item, montant: sg.avg }); setToast({ msg: `${sg.item.label} : ${fmt(sg.avg)} FCFA à partir de maintenant`, prev: st }); }] });
   if (st.migratedV3) alerts.push({ tone: 'p', icon: Smartphone, text: <>Répartis ton solde entre tes comptes</>, act: ['Répartir', () => setPage('comptes')] });
 
-  // Échéances regroupées
-  const in7 = new Date(Date.now() + 7 * 864e5); const in7iso = `${in7.getFullYear()}-${String(in7.getMonth() + 1).padStart(2, '0')}-${String(in7.getDate()).padStart(2, '0')}`;
-  const groupsE = [
-    ['En retard', up.filter((o) => o.late), 'warn'],
-    ["Aujourd'hui et cette semaine", up.filter((o) => !o.late && o.date <= in7iso), 'p'],
-    ['Plus tard', up.filter((o) => !o.late && o.date > in7iso), ''],
-  ].filter((g) => g[1].length);
+  const in7 = isoD(addD(now, 7));
+  const groupsE = [['En retard', up.filter((o) => o.late), 'warn'], ['Cette semaine', up.filter((o) => !o.late && o.date <= in7), 'p'], ['Plus tard', up.filter((o) => !o.late && o.date > in7), '']].filter((g) => g[1].length);
   const sumNet = (l) => l.reduce((s, o) => s + (o.kind === 'in' ? o.amount : -o.amount), 0);
-
-  const groups = {};
-  pending(st, nk).filter((x) => x.kind !== 'in').forEach((x) => { const k = x.kind === 'save' ? 'epargne' : x.cat; groups[k] = (groups[k] || 0) + x.amount; });
-  for (const [c, v] of Object.entries(st.budgets || {})) if (+v > 0) groups[c] = (groups[c] || 0) + +v;
-  const rep = Object.entries(groups).sort((a, b) => b[1] - a[1]).map(([k, v], i) => ({ k, v, c: REP_COLORS[i % REP_COLORS.length] }));
-  const repTot = rep.reduce((s, x) => s + x.v, 0);
-  const hr = new Date().getHours();
-  const pct = (a, b) => (b > 0 ? a / b : 0);
-  const Metric = ({ label, real, plan, color, warnOver }) => {
-    const p = pct(real, plan); const over = warnOver && p > 1;
-    return (
-      <div className="metric">
-        <Ring pct={p} color={over ? 'var(--neg)' : color} size={68} stroke={7} label={plan > 0 ? `${Math.round(p * 100)}%` : '—'} />
-        <div className="metric-t">{label}</div>
-        <div className="metric-v num">{fmt(real)}</div>
-        <div className="metric-s num">sur {fmt(plan)}</div>
-      </div>
-    );
-  };
+  const ms = monthStats(st, cur);
+  const hr = now.getHours();
+  const accSel = acc === 'all' ? null : st.accounts.find((a) => a.id === acc);
+  const dispoV = accSel ? bal.accounts[acc] || 0 : bal.dispo;
+  const over = ref > 0 && vCur > ref;
+  const L = PER_L[per];
+  const QA = [
+    [Plus, 'Dépense', 'Ctrl+N', () => open('tx'), 'p'],
+    [ArrowLeftRight, 'Virement', 'Ctrl+B', () => open('tx', { kind: 'move' }), 's'],
+    [ClipboardPaste, 'Coller un SMS', 'Ctrl+M', () => open('sms', ''), 'g'],
+    [Scale, 'Ajuster soldes', 'Ctrl+J', () => open('adjust'), 'o'],
+  ];
 
   return (
     <>
-      <Top title={`${hr >= 5 && hr < 18 ? 'Bonjour' : 'Bonsoir'} Paul`} sub={new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).replace(/^./, (c) => c.toUpperCase())}>
-        <button className="btn s" onClick={() => open('tx', { kind: 'move' })}><ArrowLeftRight size={15} />Virement</button>
-        <button className="btn p" onClick={() => open('tx')}><Plus size={16} />Nouvelle opération</button>
+      <Top title={`${hr >= 5 && hr < 18 ? 'Bonjour' : 'Bonsoir'} Paul`} sub={now.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).replace(/^./, (x) => x.toUpperCase())}>
+        <div className="seg dash-per">{[['j', "Aujourd'hui"], ['s', 'Semaine'], ['m', 'Mois']].map(([k, l]) => <button key={k} className={per === k ? 'on' : ''} onClick={() => setPer(k)}>{l}</button>)}</div>
+        <label className="dsel"><Smartphone size={14} /><select value={acc} onChange={(e) => setAcc(e.target.value)}><option value="all">Tous les comptes</option>{st.accounts.map((a) => <option key={a.id} value={a.id}>{a.nom}</option>)}</select><ChevronDown size={13} /></label>
+        <label className="dsel"><Tag size={14} /><select value={cat} onChange={(e) => setCat(e.target.value)}><option value="all">Toutes catégories</option>{CATS_VIE.map((k) => <option key={k} value={k}>{CATS[k]}</option>)}</select><ChevronDown size={13} /></label>
       </Top>
-      <div className="content dash">
+      <div className="content dash dashB">
         {onboarding && (
           <div className="card" style={{ marginBottom: 16 }}>
             <div className="card-h"><div><h3>Configuration de ton espace</h3><div className="sub">Renseigne tes données pour activer la projection</div></div><span className="badge p">{steps.filter((s) => s.done).length} / 4</span></div>
@@ -459,115 +474,113 @@ function Dashboard({ st, bal, rows, open, setPage, addTx, setSettings, setToast,
                 <button className={'btn sm ' + (s.done ? 's' : 'p')} onClick={s.a[1]}>{s.done && i > 0 ? 'Compléter' : s.a[0]}</button>
               </div>))}
             </div>
-          </div>
-        )}
+          </div>)}
 
-        {/* ---- Bloc principal : solde + mois en cours ---- */}
-        <div className="dash-top">
-          <div className="card hero hero2">
-            <div className="hero-head">
-              <span>Solde disponible</span>
-              <span className={'hero-pill ' + (ms.solde >= 0 ? 'up' : 'down')}>{ms.solde >= 0 ? '+' : '−'}{fmt(Math.abs(ms.solde))} ce mois</span>
+        <div className="dB-layout">
+          <div className="dB-main">
+            {/* ---- KPI ---- */}
+            <div className="dB-kpis">
+              <div className="dk dk-hero">
+                <div className="dk-top"><span>{accSel ? `Solde · ${accSel.nom}` : 'Solde disponible'}</span><span className={'hero-pill ' + (ms.solde >= 0 ? 'up' : 'down')}>{ms.solde >= 0 ? '+' : '−'}{fmt(Math.abs(ms.solde))} ce mois</span></div>
+                <div className="dk-v num">{fmt(dispoV)}<small>FCFA</small></div>
+                <div className="dk-accs">{st.accounts.map((a) => <button key={a.id} className={acc === a.id ? 'on' : ''} title={a.nom} onClick={() => setAcc(acc === a.id ? 'all' : a.id)}><i style={{ background: a.couleur }} />{short(bal.accounts[a.id] || 0)}</button>)}</div>
+                <svg className="dk-wave" viewBox="0 0 200 60" preserveAspectRatio="none"><path d="M0 45 C40 30 60 52 100 34 S160 18 200 26 L200 60 L0 60 Z" /></svg>
+              </div>
+              <div className={'dk dk-spent' + (over ? ' over' : '')}>
+                <div className="dk-top"><span className="dk-ic"><ArrowUpRight size={15} /></span><span>Dépensé <em className="dk-p">{per === 'j' ? 'auj.' : per === 's' ? 'semaine' : 'mois'}</em></span>{delta != null && <span className={'dk-delta ' + (delta > 0 ? 'up' : 'dn')} title={`vs ${L[1]} (${fmt(vPrev)})`}>{delta > 0 ? '↑' : '↓'} {Math.abs(delta)} %</span>}</div>
+                <div className="dk-v num">{fmt(vCur)}<small>FCFA</small></div>
+                <div className="dk-bar"><i style={{ width: ref ? Math.min(100, (vCur / ref) * 100) + '%' : 0 }} /></div>
+                <div className="dk-f">{ref ? <>{Math.round((vCur / ref) * 100)} % de <b className="num">{fmt(ref)}</b> {per === 'm' ? 'de budget' : per === 's' ? 'de budget semaine' : 'de budget jour'}</> : 'Aucun budget défini'}</div>
+                {bars.length >= 4 && <div className="dk-spark">{bars.slice(-8).map((b, i) => <i key={i} className={b.cur ? 'cur' : ''} style={{ height: Math.max(6, (b.v / Math.max(1, ...bars.slice(-8).map((x) => x.v))) * 100) + '%' }} />)}</div>}
+              </div>
+              <div className={'dk dk-left' + (reste < 0 ? ' over' : '')}>
+                <div className="dk-top"><span className="dk-ic"><Wallet size={15} /></span><span>Reste <em className="dk-p">{per === 'j' ? 'auj.' : per === 's' ? 'semaine' : 'mois'}</em></span></div>
+                <div className={'dk-v num' + (reste < 0 ? ' neg' : '')}>{reste < 0 ? '−' : ''}{fmt(Math.abs(reste))}<small>FCFA</small></div>
+                <div className="dk-f">{reste < 0 ? `Budget dépassé de ${fmt(-reste)}` : per === 'j' ? 'encore possible aujourd’hui' : <>soit <b className="num">{fmt(perDayLeft)}</b> par jour ({daysLeftP} j)</>}</div>
+                <div className="dk-ring"><Ring pct={ref ? Math.min(1, Math.max(0, reste) / ref) : 0} color={reste < 0 ? 'var(--neg)' : 'var(--pos)'} size={54} stroke={6} label={ref ? `${Math.max(0, Math.round((reste / ref) * 100))}%` : '—'} /></div>
+              </div>
             </div>
-            <div className="hero-amount num">{fmt(bal.dispo)}<small>FCFA</small></div>
-            <div className="hero-sub">Patrimoine <b>{fmt(bal.total)}</b><span>·</span>Épargne affectée <b>{fmt(bal.epargne)}</b></div>
-            <HeroChart rows={rows} />
-            <div className="hero-accs">
-              {st.accounts.map((a) => (
-                <button key={a.id} className={'hero-acc' + ((bal.accounts[a.id] || 0) < 0 ? ' neg' : '')} onClick={() => setPage('comptes')} title={`Voir ${a.nom}`}>
-                  <i style={{ background: a.couleur }} />
-                  <span>{a.nom}</span>
-                  <b className="num">{fmt(bal.accounts[a.id] || 0)}</b>
-                </button>))}
+
+            {/* ---- Comparateur ---- */}
+            <div className="card cmpB">
+              <div className="card-h"><div><h3>Comparateur de dépenses</h3><div className="sub">Dépenses courantes {L[2]}{cat !== 'all' ? ` · ${CATS[cat]}` : ''}{accSel ? ` · ${accSel.nom}` : ''}</div></div>
+                <div className="seg">{[['j', 'Jour'], ['s', 'Semaine'], ['m', 'Mois']].map(([k, l]) => <button key={k} className={per === k ? 'on' : ''} onClick={() => setPer(k)}>{l}</button>)}</div></div>
+              <div className="cmp-sum">
+                <div><span>{L[0]}</span><b className="num">{fmt(vCur)}</b></div>
+                <div><span>Écart au budget</span><b className={'num ' + (ref && vCur > ref ? 'neg' : 'pos')}>{ref ? `${vCur > ref ? '+' : '−'}${fmt(Math.abs(vCur - ref))}` : '—'}</b></div>
+                <div><span>vs {L[1]}</span><b className={'num ' + (delta > 0 ? 'neg' : 'pos')}>{delta == null ? '—' : `${delta > 0 ? '+' : ''}${delta} %`}</b><em className="num">{fmt(vPrev)}</em></div>
+                <div><span>Moyenne {per === 'j' ? 'des jours' : per === 's' ? 'des semaines' : 'des mois'} passés</span><b className="num">{past.length ? fmt(avg) : '—'}</b>{!past.length && <em>pas encore d'historique</em>}</div>
+              </div>
+              <div style={{ height: 230 }}>
+                <ResponsiveContainer>
+                  <BarChart data={bars} margin={{ top: 18, right: 72, left: 0, bottom: 0 }}>
+                    <CartesianGrid vertical={false} stroke={c.grid} />
+                    <XAxis dataKey="l" {...axisOf(c)} interval={0} tick={{ fill: c.axis, fontSize: 11.5 }} />
+                    <YAxis {...axisOf(c)} width={44} tickFormatter={(v) => short(v)} />
+                    <Tooltip content={<Tip />} cursor={{ fill: c.grid }} />
+                    {ref > 0 && <ReferenceLine y={ref} stroke="var(--ink)" strokeDasharray="5 4" label={{ value: `Budget ${short(ref)}`, position: 'right', fill: 'var(--ink2)', fontSize: 11.5 }} />}
+                    {avg > 0 && <ReferenceLine y={avg} stroke={c.primary} strokeOpacity={0.45} label={{ value: `Moy. ${short(avg)}`, position: 'right', fill: c.primary, fontSize: 11.5 }} />}
+                    <Bar dataKey="v" name="Dépensé" radius={[6, 6, 0, 0]} maxBarSize={46}>
+                      {bars.map((b, i) => <Cell key={i} fill={b.cur ? c.primary : b.na ? c.track : ref && b.v > ref ? 'var(--neg-soft2)' : c.track2 || '#CDD1E0'} />)}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              {catRows.length > 0 && <div className="cmp-cats">
+                <div className="cc-h"><span>Catégorie</span><span>{L[0]}</span><span>{per === 'j' ? 'Hier' : per === 's' ? 'Sem. dern.' : 'Mois dern.'}</span><span>Écart</span></div>
+                {catRows.slice(0, 6).map((r) => { const d = r.a - r.b; return (
+                  <button className="cc-r" key={r.k} onClick={() => setCat(cat === r.k ? 'all' : r.k)} title="Filtrer sur cette catégorie">
+                    <span className="cc-n"><span className="bud-ic">{React.createElement(catIcon(r.k), { size: 13 })}</span>{CATS[r.k]}</span>
+                    <span className="num"><b>{fmt(r.a)}</b>{r.bud > 0 && <i className="cc-bar"><em style={{ width: Math.min(100, (r.a / r.bud) * 100) + '%', background: r.a > r.bud ? 'var(--neg)' : 'var(--primary)' }} /></i>}</span>
+                    <span className="num muted">{fmt(r.b)}</span>
+                    <span className={'num ' + (d > 0 ? 'neg' : d < 0 ? 'pos' : 'muted')}>{d === 0 ? '=' : `${d > 0 ? '+' : '−'}${fmt(Math.abs(d))}`}</span>
+                  </button>); })}
+              </div>}
             </div>
+
+            {/* ---- Échéances ---- */}
+            <Card title="Échéances" sub="Valide chaque mouvement quand il a lieu" flush className="mt" action={due.length > 0 ? <button className="btn p sm" onClick={() => open('bulk', due)}><CheckCheck size={14} />Valider les échues ({due.length})</button> : <button className="btn s sm" onClick={() => setPage('flux')}>Flux</button>}>
+              {groupsE.length ? groupsE.map(([title, list, tn]) => (
+                <div key={title}>
+                  <div className={'grp-h ' + tn}><span>{title}</span><span className="num">{list.length} · {sumNet(list) >= 0 ? '+' : '−'}{fmt(Math.abs(sumNet(list)))}</span></div>
+                  {list.slice(0, title === 'Plus tard' ? 4 : 8).map((o) => <OccRow key={o.ref} o={o} st={st} open={open} />)}
+                </div>)) : <Empty icon={CalendarDays} title="Aucune échéance" text="Les flux, tontines et créances que tu ajoutes apparaîtront ici." />}
+            </Card>
+
+            <Card title="Trajectoire" sub={`Jusqu'en ${mLabel(rows[rows.length - 1].key, true)}`} className="mt" action={<div className="legend"><span><i style={{ background: 'var(--primary)' }} />Disponible</span><span><i style={{ background: 'var(--sky)' }} />Épargne</span></div>}>
+              <TrendChart rows={rows} h={230} />
+            </Card>
           </div>
 
-          <div className="card month-card">
-            <div className="card-h"><div><h3>{mLabel(cur, true).replace(/^./, (c) => c.toUpperCase())}</h3><div className="sub">Réel comparé au prévu</div></div><button className="btn s sm" onClick={() => setPage('bilan')}>Bilan</button></div>
-            <div className="metrics">
-              <Metric label="Entrées" real={ms.entrees} plan={mp.entrees} color="var(--pos)" />
-              <Metric label="Dépenses" real={ms.sorties} plan={sortiesPrev} color="var(--warn)" warnOver />
-              <Metric label="Budgets" real={vie} plan={bt} color="var(--primary)" warnOver />
+          {/* ---- Colonne de droite ---- */}
+          <div className="dB-rail">
+            <div className="card rail-card">
+              <div className="rc-h"><h3>Actions rapides</h3><button className="ib" title="Raccourcis (F1)" onClick={() => open('keys')}><Keyboard size={15} /></button></div>
+              <div className="qaB">{QA.map(([I, l, k, fn, tn]) => <button key={l} onClick={fn}><span className={'chip-ic ' + tn}><I size={16} /></span><b>{l}</b><kbd>{k}</kbd></button>)}</div>
             </div>
-            <div className="month-foot">
-              <div><span className="muted">Taux d'épargne</span><b className="num">{ms.taux == null ? '—' : `${Math.round(ms.taux * 100)} %`}</b></div>
-              <div><span className="muted">Par jour d'ici la fin du mois</span><b className="num">{perDay == null ? '—' : `${fmt(perDay)} FCFA`}</b></div>
-            </div>
-          </div>
-        </div>
-
-        <QuickAdd st={st} addTx={addTx} setSettings={setSettings} setToast={setToast} open={open} />
-
-        {/* ---- Indicateurs rapides ---- */}
-        <div className="tiles mt">
-          <div className="tile">
-            <div className="chip-ic r"><ArrowUpRight size={17} /></div>
-            <div><div className="tile-k">Dépensé aujourd'hui</div><div className="tile-v num">{fmt(spentToday)}</div><div className="tile-s">7 jours : <b className="num">{fmt(spent7)}</b></div></div>
-          </div>
-          <div className="tile">
-            <div className="chip-ic g"><Banknote size={17} /></div>
-            <div><div className="tile-k">Prochain salaire</div>{nextSal ? <><div className="tile-v num">{fmt(nextSal.amount)}</div><div className="tile-s">{nextSal.label} · {daysTo === 0 ? "aujourd'hui" : daysTo === 1 ? 'demain' : `dans ${daysTo} j`}</div></> : <div className="tile-s" style={{ marginTop: 6 }}>Aucun salaire prévu</div>}</div>
-          </div>
-          <div className="tile">
-            <div className="chip-ic s"><PiggyBank size={17} /></div>
-            <div><div className="tile-k">Épargne objectifs</div><div className="tile-v num">{fmt(bal.epargne)}</div><div className="tile-s">{goalsA.length} objectif{goalsA.length > 1 ? 's' : ''} actif{goalsA.length > 1 ? 's' : ''}</div></div>
-          </div>
-          <div className="tile">
-            <div className="chip-ic o"><CalendarDays size={17} /></div>
-            <div><div className="tile-k">Échéances · 7 jours</div><div className="tile-v num">{up.filter((o) => o.date <= in7iso).length}</div><div className="tile-s">Solde net <b className={'num ' + (sumNet(up.filter((o) => o.date <= in7iso)) >= 0 ? 'pos' : 'neg')}>{sumNet(up.filter((o) => o.date <= in7iso)) >= 0 ? '+' : '−'}{fmt(Math.abs(sumNet(up.filter((o) => o.date <= in7iso))))}</b></div></div>
-          </div>
-        </div>
-
-        {/* ---- Échéances + colonne latérale ---- */}
-        <div className="grid g21 mt" style={{ alignItems: 'start' }}>
-          <Card title="Échéances" sub="Valide chaque mouvement quand il a lieu" flush action={due.length > 0 ? <button className="btn p sm" onClick={() => open('bulk', due)}><CheckCheck size={14} />Valider les échues ({due.length})</button> : null}>
-            {groupsE.length ? groupsE.map(([title, list, tn]) => (
-              <div key={title}>
-                <div className={'grp-h ' + tn}><span>{title}</span><span className="num">{list.length} · {sumNet(list) >= 0 ? '+' : '−'}{fmt(Math.abs(sumNet(list)))}</span></div>
-                {list.slice(0, title === 'Plus tard' ? 4 : 8).map((o) => <OccRow key={o.ref} o={o} st={st} open={open} />)}
-              </div>)) : <Empty icon={CalendarDays} title="Aucune échéance" text="Les flux, tontines et créances que tu ajoutes apparaîtront ici." />}
-          </Card>
-          <div className="side-col">
-            <Card title="À surveiller" sub={alerts.length ? `${alerts.length} point${alerts.length > 1 ? 's' : ''}` : 'Rien à signaler'} flush>
+            <QuickAdd st={st} addTx={addTx} setSettings={setSettings} setToast={setToast} open={open} compact />
+            <div className="card rail-card">
+              <div className="rc-h"><h3>À surveiller</h3>{alerts.length > 0 && <span className="badge">{alerts.length}</span>}</div>
               {alerts.length ? alerts.slice(0, 6).map((a, i) => (
-                <div className="row alert-row" key={i}>
-                  <div className={'chip-ic ' + a.tone} style={{ width: 30, height: 30 }}><a.icon size={15} /></div>
-                  <div style={{ flex: 1, minWidth: 0, fontSize: 13 }}>{a.text}</div>
-                  <button className="btn s sm" onClick={a.act[1]}>{a.act[0]}</button>
+                <div className={'alB ' + a.tone} key={i}>
+                  <a.icon size={15} />
+                  <div>{a.text}</div>
+                  <button onClick={a.act[1]}>{a.act[0]}</button>
                 </div>)) : <div className="ok-state"><ShieldCheck size={18} />Tout est en ordre</div>}
-            </Card>
-            <Card title="Objectifs" sub={`${goalsA.length} actif${goalsA.length > 1 ? 's' : ''}`} action={<button className="btn s sm" onClick={() => setPage('goals')}>Voir</button>} flush>
+            </div>
+            <div className="card rail-card">
+              <div className="rc-h"><h3>Objectifs</h3><button className="btn s sm" onClick={() => setPage('goals')}>Voir</button></div>
               {goalsA.length ? goalsA.slice(0, 4).map((g) => {
-                const v = bal.goals[g.id] || 0; const r = goalReach(rows, g); const ok = r && monthDiff(g.echeance, r.key) <= 0;
+                const v = bal.goals[g.id] || 0; const p = Math.min(1, v / g.montant); const r = goalReach(rows, g); const ok = r && monthDiff(g.echeance, r.key) <= 0;
                 return (
-                  <div className="goal-mini" key={g.id}>
-                    <div className="gm-h"><span><i style={{ background: g.couleur }} />{g.nom}</span><span className="num">{Math.round(Math.min(1, v / g.montant) * 100)} %</span></div>
-                    <div className="bar" style={{ height: 6 }}><i style={{ width: Math.min(100, (v / g.montant) * 100) + '%', background: g.couleur }} /></div>
-                    <div className="gm-s"><span className="num">{fmt(v)} / {fmt(g.montant)}</span><span className={ok ? 'pos' : 'neg'}>{v >= g.montant ? 'Atteint' : r ? mLabel(r.key) : 'Non atteint'}</span></div>
+                  <div className="goalB" key={g.id} onClick={() => open('goalHist', g)}>
+                    <Ring pct={p} color={g.couleur} size={40} stroke={5} label="" />
+                    <div style={{ flex: 1, minWidth: 0 }}><div className="gB-n">{g.nom}</div><div className="gB-s num">{fmt(v)} / {fmt(g.montant)}</div></div>
+                    <div className="gB-r"><b className="num">{Math.round(p * 100)} %</b><span className={ok ? 'pos' : 'neg'}>{v >= g.montant ? 'Atteint' : r ? mLabel(r.key) : 'Non atteint'}</span></div>
                   </div>);
-              }) : <Empty icon={Target} title="Aucun objectif actif" text="Crée un objectif d'épargne." action={<button className="btn p sm" onClick={() => open('goal')}><Plus size={14} />Créer</button>} />}
-            </Card>
+              }) : <Empty icon={Target} title="Aucun objectif" text="Crée un objectif d'épargne." action={<button className="btn p sm" onClick={() => open('goal')}><Plus size={14} />Créer</button>} />}
+            </div>
           </div>
-        </div>
-
-        {/* ---- Projection ---- */}
-        <div className="grid g21 mt">
-          <Card title="Trajectoire" sub={`Jusqu'en ${mLabel(rows[rows.length - 1].key, true)}`} action={<div className="legend"><span><i style={{ background: 'var(--primary)' }} />Disponible</span><span><i style={{ background: 'var(--sky)' }} />Épargne</span></div>}>
-            <TrendChart rows={rows} h={260} />
-          </Card>
-          <Card title="Sorties prévues" sub={mLabel(nk, true).replace(/^./, (c) => c.toUpperCase())}>
-            {rep.length ? (
-              <>
-                <div style={{ fontSize: 24, fontWeight: 700, letterSpacing: -.5 }} className="num">{fmt(repTot)} <span className="muted" style={{ fontSize: 13, fontWeight: 500 }}>FCFA</span></div>
-                <div className="stack" style={{ margin: '12px 0 14px' }}>{rep.map((x) => <i key={x.k} style={{ width: (x.v / repTot) * 100 + '%', background: x.c }} />)}</div>
-                {rep.slice(0, 7).map((x) => (
-                  <div key={x.k} style={{ display: 'flex', alignItems: 'center', fontSize: 13, padding: '5px 0' }}>
-                    <i style={{ width: 9, height: 9, borderRadius: 3, background: x.c, marginRight: 10 }} />
-                    <span className="muted">{CATS[x.k] || x.k}</span>
-                    <span style={{ marginLeft: 'auto' }} className="num"><b>{fmt(x.v)}</b><span className="muted" style={{ display: 'inline-block', width: 44, textAlign: 'right' }}>{Math.round((x.v / repTot) * 100)} %</span></span>
-                  </div>))}
-              </>) : <Empty title="Rien de prévu" text="Ajoute tes charges récurrentes." />}
-          </Card>
         </div>
       </div>
     </>
@@ -1737,7 +1750,7 @@ function GoalHistoryModal({ g, st, bal, onClose }) {
 const CAT_ICONS = { alimentation: UtensilsCrossed, transport: Bus, loisirs: Ticket, shopping: ShoppingBag, sante: HeartPulse, famille: Users, vie: Wallet };
 const catIcon = (c) => CAT_ICONS[c] || Tag;
 
-function QuickAdd({ st, addTx, setSettings, setToast, open }) {
+function QuickAdd({ st, addTx, setSettings, setToast, open, compact }) {
   const q = st.settings.quick || {};
   const [m, setM] = useState('');
   const [cat, setCat] = useState(q.cat && CATS_VIE.includes(q.cat) ? q.cat : 'alimentation');
@@ -1771,6 +1784,23 @@ function QuickAdd({ st, addTx, setSettings, setToast, open }) {
     </div>
   );
 
+  if (compact) return (
+    <div className="card rail-card qbC">
+      <div className="rc-h"><h3>Saisie express</h3>{bt > 0 && <span className={'qb-today' + (spentToday > perDay ? ' over' : '')} title="Dépensé aujourd'hui / possible aujourd'hui">Auj. {fmt(spentToday)} / {fmt(perDay)}</span>}</div>
+      <div className="qb-habits">
+        {habits.map((h) => { const done = habitLogged(st, h); const td = habitToday(h); return <button key={h.id} className={(done ? 'done ' : '') + (td ? '' : 'off')} title={`${CATS[h.cat]} · ${JOURS[h.jours] || ''}`} onClick={() => logHabit(h)}>{done ? <Check size={13} /> : React.createElement(catIcon(h.cat), { size: 13 })}{h.label}<b className="num">{fmt(h.montant)}</b></button>; })}
+        <button className="qb-hset" onClick={() => open('habits')} title="Gérer mes habitudes"><Settings size={13} /></button>
+      </div>
+      <div className="qbC-row">
+        <input ref={ref} className="inp num" type="number" inputMode="numeric" placeholder="Montant" value={m} onChange={(e) => setM(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} />
+        <button className="btn p" onClick={add} title="Ajouter (Entrée)"><Plus size={16} /></button>
+      </div>
+      <div className="qbC-row">
+        <label className="dsel"><span className="bud-ic">{React.createElement(catIcon(cat), { size: 13 })}</span><select value={cat} onChange={(e) => pick(e.target.value)}>{CATS_VIE.map((c) => <option key={c} value={c}>{CATS[c]}</option>)}</select><ChevronDown size={13} /></label>
+        <label className="dsel"><i className="dot" style={{ background: (st.accounts.find((a) => a.id === acc) || {}).couleur }} /><select value={acc} onChange={(e) => setAcc(e.target.value)}>{st.accounts.map((a) => <option key={a.id} value={a.id}>{a.nom}</option>)}</select><ChevronDown size={13} /></label>
+      </div>
+    </div>
+  );
   return (
     <div className="card qb mt">
       <div className="qb-head"><div><b>Saisie express</b><span className="muted"> · dépense d'aujourd'hui</span></div>
