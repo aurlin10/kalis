@@ -4,7 +4,7 @@ import {
   LayoutGrid, LineChart as LineIc, Target, Repeat, Users, HandCoins, List, Settings, Plus, Check, Pencil, Trash2, X,
   ArrowDownLeft, ArrowUpRight, PiggyBank, Sun, Moon, Monitor, AlertTriangle, Info, Download, Upload, RotateCcw, Undo2, Wallet, CalendarDays,
   ArrowLeftRight, BarChart3, FlaskConical, Lock, Bell, Star, FileSpreadsheet, FileText, FolderOpen, RefreshCw, Gauge, PartyPopper, KeyRound, ShieldCheck, Smartphone, Keyboard, Power, Delete, Sparkles, Search, Trophy, Archive, History, CheckCheck, Clock, Banknote, ArchiveRestore, Zap, Tag, CalendarRange, UtensilsCrossed, Bus, HeartPulse, ShoppingBag, Ticket, CornerDownLeft, ChevronDown,
-  MessageCircle, Scale, ClipboardPaste, ListChecks, Copy, Send, Command, FileBarChart,
+  MessageCircle, Scale, ClipboardPaste, ListChecks, Copy, Send, Command, FileBarChart, PanelLeftClose, PanelLeftOpen, Palette, Database,
 } from 'lucide-react';
 import {
   AreaChart, Area, LineChart, Line, BarChart, Bar, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine,
@@ -189,10 +189,19 @@ export default function App() {
 
   const ctx = { st, set, bal, rows, upsert, remove, addTx, delTx, updateTx, setDone, undoRef, open, setPage, setSettings, setToast, sendWeekly, exportPDF, doExcel, makeReport, focusSearch, version, update, checkUpdate, lastBackup, lock: () => setLocked(true) };
 
+  const collapsed = !!st.settings.sideCollapsed;
+  const msSide = monthStats(st, mkey(new Date()));
+  const badges = useMemo(() => {
+    const t = todayISO(); const cur = mkey(new Date());
+    const due = upcoming(st).filter((o) => o.date <= t).length;
+    const over = CATS_VIE.filter((c) => +st.budgets[c] > 0 && spentCat(st, cur, c) > +st.budgets[c]).length;
+    const late = st.creances.flatMap((c) => creanceOccs(c)).filter((o) => !st.done[o.ref] && o.date < t).length;
+    const neg = st.accounts.filter((a) => (bal.accounts[a.id] || 0) < 0).length;
+    return { dash: due ? [due, 'warn'] : null, budgets: over ? [over, 'r'] : null, cre: late ? [late, 'warn'] : null, comptes: neg ? [neg, 'r'] : null };
+  }, [st, bal]);
   const NAV = [
     ['Pilotage', [['dash', "Vue d'ensemble", LayoutGrid], ['bilan', 'Bilan mensuel', BarChart3], ['proj', 'Projection', LineIc], ['scen', 'Scénarios', FlaskConical], ['goals', 'Objectifs', Target]]],
     ['Données', [['comptes', 'Comptes', Smartphone], ['budgets', 'Budgets', Gauge], ['flux', 'Flux récurrents', Repeat], ['tont', 'Tontines', Users], ['cre', 'Créances & dettes', HandCoins], ['ops', 'Opérations', List]]],
-    ['', [['set', 'Paramètres', Settings]]],
   ];
   const PAGES = { dash: Dashboard, bilan: Bilan, proj: Projection, scen: Scenarios, goals: Goals, comptes: Comptes, budgets: Budgets, flux: Flux, tont: Tontines, cre: Creances, ops: Operations, set: Params };
   const Page = PAGES[page];
@@ -201,24 +210,31 @@ export default function App() {
 
   return (
     <ThemeCtx.Provider value={PAL[eff]}>
-    <div className="app">
+    <div className={'app' + (collapsed ? ' collapsed' : '')}>
       <aside className="side">
-        <div className="brand"><img className="brand-logo" src={logoUrl} alt="" /><div className="brand-name">Kalis</div></div>
+        <div className="brand"><img className="brand-logo" src={logoUrl} alt="" /><div className="brand-name">Kalis<span className="brand-v">v2</span></div>
+          <button className="ib side-tog" title={collapsed ? 'Déplier le menu' : 'Replier le menu'} onClick={() => setSettings({ sideCollapsed: !collapsed })}>{collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}</button></div>
+        <button className="side-search" title="Rechercher (Ctrl+K)" onClick={() => { setModal(null); setPage('ops'); setFocusSearch((x) => x + 1); }}><Search size={15} /><span className="nl">Rechercher…</span><kbd className="nl">Ctrl K</kbd></button>
         {NAV.map(([sec, items]) => (
           <React.Fragment key={sec || 'x'}>
-            {sec ? <div className="nav-sec">{sec}</div> : <div style={{ height: 14 }} />}
-            {items.map(([k, l, I]) => <button key={k} title={l} className={'nav' + (page === k ? ' on' : '')} onClick={() => setPage(k)}><I size={17} strokeWidth={1.8} /><span className="nl">{l}</span></button>)}
+            {sec ? <div className="nav-sec">{sec}</div> : <div className="nav-gap" />}
+            {items.map(([k, l, I]) => <button key={k} title={l} className={'nav' + (page === k ? ' on' : '')} onClick={() => setPage(k)}><I size={17} strokeWidth={1.8} /><span className="nl">{l}</span>{badges[k] ? <span className={'nav-badge ' + (badges[k][1] || '')}>{badges[k][0]}</span> : null}</button>)}
           </React.Fragment>
         ))}
         <div className="side-foot">
-          <div className="k">Patrimoine</div>
+          <div className="sf-top"><span className="k">Patrimoine</span><span className={'sf-d ' + (msSide.solde >= 0 ? 'pos' : 'neg')}>{msSide.solde >= 0 ? '+' : '−'}{short(Math.abs(msSide.solde))} ce mois</span></div>
           <div className="v num">{fcfa(bal.total)}</div>
-          <div className="bar"><i style={{ width: bal.total > 0 ? Math.max(0, Math.min(100, (bal.epargne / bal.total) * 100)) + '%' : 0 }} /></div>
-          <div className="k" style={{ marginTop: 8, fontSize: 11.5 }}>{bal.total > 0 ? Math.round((bal.epargne / bal.total) * 100) : 0} % affecté aux objectifs</div>
+          <div className="sf-accs">{st.accounts.filter((x) => (bal.accounts[x.id] || 0) > 0).map((x) => <i key={x.id} title={`${x.nom} · ${fmt(bal.accounts[x.id])}`} style={{ flex: bal.accounts[x.id] || 0, background: x.couleur }} />)}</div>
         </div>
-        <div className="theme-sw">{[['light', Sun, 'Clair'], ['dark', Moon, 'Sombre'], ['system', Monitor, 'Auto']].map(([m, I, l]) => (
-            <button key={m} className={mode === m ? 'on' : ''} title={l} onClick={() => set({ theme: m })}><I size={13} /><span className="nl">{l}</span></button>))}
-          {st.settings.pinHash && <button title="Verrouiller (Ctrl+L)" onClick={() => setLocked(true)} style={{ flex: '0 0 auto', padding: '6px 9px' }}><Lock size={13} /></button>}</div>
+        <div className="side-user">
+          <div className="avatar">PM</div>
+          <div className="su-t nl"><b>Paul Aurlin</b><span>Kalis {version || '2.0'}</span></div>
+          <div className="su-act">
+            <button className="ib" title={`Thème : ${mode === 'light' ? 'clair' : mode === 'dark' ? 'sombre' : 'automatique'} (changer)`} onClick={() => set({ theme: mode === 'light' ? 'dark' : mode === 'dark' ? 'system' : 'light' })}>{mode === 'light' ? <Sun size={15} /> : mode === 'dark' ? <Moon size={15} /> : <Monitor size={15} />}</button>
+            {st.settings.pinHash && <button className="ib" title="Verrouiller (Ctrl+L)" onClick={() => setLocked(true)}><Lock size={15} /></button>}
+            <button className={'ib' + (page === 'set' ? ' on' : '')} title="Paramètres" onClick={() => setPage('set')}><Settings size={15} /></button>
+          </div>
+        </div>
       </aside>
       <main className="main">
         {update && <div className="update-bar"><Sparkles size={16} /><span>Kalis <b>{update.version}</b> est prête à être installée.</span><button className="btn p sm" onClick={() => native.relaunch()}><RefreshCw size={13} />Redémarrer maintenant</button><button className="ib" onClick={() => setUpdate(null)}><X size={15} /></button></div>}
@@ -1029,7 +1045,7 @@ function Creances({ st, open, remove, undoRef }) {
 // ================= CRÉANCES =================
 
 // ================= OPÉRATIONS =================
-function Operations({ st, open, delTx, doExcel, focusSearch }) {
+function Operations({ st, set, open, delTx, updateTx, doExcel, focusSearch, setToast }) {
   const sRef = React.useRef(null);
   useEffect(() => { if (focusSearch) setTimeout(() => sRef.current?.focus(), 50); }, [focusSearch]);
   const [f, setF] = useState('all');
@@ -1037,8 +1053,10 @@ function Operations({ st, open, delTx, doExcel, focusSearch }) {
   const [acc, setAcc] = useState('all');
   const [q, setQ] = useState('');
   const [cat, setCat] = useState('all');
+  const [sel, setSel] = useState(() => new Set());
   const accOf = (t) => t.accountId || st.accounts[0]?.id;
-  const norm = (x) => String(x || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const accO = (id) => st.accounts.find((a) => a.id === id) || {};
+  const norm = (x) => String(x || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
   const qq = norm(q.trim());
   const match = (t) => !qq || norm(`${t.label} ${CATS[t.cat] || ''} ${t.montant} ${fmt(t.montant)} ${accName(st, accOf(t))} ${t.goalId ? gname(st, t.goalId) : ''}`).includes(qq);
   const inM = st.transactions.filter((t) => (qq ? true : t.date.startsWith(m)) && (acc === 'all' || accOf(t) === acc || t.toAccountId === acc));
@@ -1048,36 +1066,144 @@ function Operations({ st, open, delTx, doExcel, focusSearch }) {
   const tot = list.reduce((s2, t) => s2 + (t.kind === 'in' ? t.montant : t.kind === 'out' ? -t.montant : 0), 0);
   const monthTx = st.transactions.filter((t) => t.date.startsWith(m) && (acc === 'all' || accOf(t) === acc || t.toAccountId === acc));
   const sum = (k) => monthTx.filter((t) => t.kind === k && !CATS_DEBT.includes(t.cat)).reduce((s, t) => s + t.montant, 0);
+  const inS = sum('in'), outS = sum('out'); const net = inS - outS;
+  const nDays = m === mkey(new Date()) ? new Date().getDate() : daysIn(m);
+  // Groupement par jour
+  const groups = []; for (const t of list) { const g = groups[groups.length - 1]; if (g && g.d === t.date) g.l.push(t); else groups.push({ d: t.date, l: [t] }); }
+  const dayNet = (l) => l.reduce((s, t) => s + (t.kind === 'in' ? t.montant : t.kind === 'out' ? -t.montant : 0), 0);
+  const dayTitle = (d) => { const t = todayISO(); const y = new Date(Date.now() - 864e5); const yi = `${y.getFullYear()}-${String(y.getMonth() + 1).padStart(2, '0')}-${String(y.getDate()).padStart(2, '0')}`; const s = new Date(d + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' }); return d === t ? `Aujourd'hui · ${s}` : d === yi ? `Hier · ${s}` : s.replace(/^./, (c) => c.toUpperCase()); };
+  const toggle = (id) => setSel((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const selL = list.filter((t) => sel.has(t.id));
+  const recat = (c) => { const ok = selL.filter((t) => t.kind === 'out'); setToast({ msg: `${ok.length} opération(s) déplacée(s) vers ${CATS[c]}`, prev: st }); ok.forEach((t) => updateTx(t.id, { cat: c, label: t.label === CATS[t.cat] ? CATS[c] : t.label })); setSel(new Set()); };
+  const bulkDel = () => { const ids = new Set(selL.map((t) => t.id)); const done = { ...st.done }; for (const t of selL) if (t.ref) delete done[t.ref]; setToast({ msg: `${ids.size} opération(s) supprimée(s)`, prev: st }); set({ transactions: st.transactions.filter((t) => !ids.has(t.id)), done }); setSel(new Set()); };
+  const filtersOn = [acc !== 'all' && ['acc', accName(st, acc), () => setAcc('all')], cat !== 'all' && ['cat', CATS[cat], () => setCat('all')], f !== 'all' && ['f', { in: 'Entrées', out: 'Dépenses', save: 'Épargne', move: 'Virements' }[f], () => setF('all')], qq && ['q', `« ${q} »`, () => setQ('')]].filter(Boolean);
+  const KIc = (t) => (t.kind === 'move' ? ArrowLeftRight : t.kind === 'save' || t.kind === 'withdraw' ? PiggyBank : t.kind === 'in' ? ArrowDownLeft : catIcon(t.cat));
   return (
     <>
-      <Top title="Opérations" sub="Mouvements enregistrés · Ctrl+N pour saisir"><button className="btn s" onClick={() => open('sms', '')}><ClipboardPaste size={15} />Coller un SMS</button><button className="btn s" onClick={doExcel}><FileSpreadsheet size={15} />Excel</button><button className="btn s" onClick={() => open('tx', { kind: 'move' })}><ArrowLeftRight size={15} />Virement</button><button className="btn p" onClick={() => open('tx')}><Plus size={16} />Nouvelle opération</button></Top>
+      <Top title="Opérations" sub="Tous tes mouvements · Ctrl+N pour saisir">
+        <button className="btn s" onClick={() => open('sms', '')}><ClipboardPaste size={15} />Coller un SMS</button>
+        <button className="btn s" onClick={doExcel}><FileSpreadsheet size={15} />Excel</button>
+        <button className="btn p" onClick={() => open('tx')}><Plus size={16} />Nouvelle opération</button>
+      </Top>
       <div className="content">
-        <div className="grid g3">
-          <Kpi icon={ArrowDownLeft} tone="g" k="Entrées du mois" v={<span className="pos">{fmt(sum('in'))}</span>} />
-          <Kpi icon={ArrowUpRight} tone="r" k="Dépenses du mois" v={<span className="neg">{fmt(sum('out'))}</span>} />
-          <Kpi icon={PiggyBank} tone="p" k="Épargne nette du mois" v={fmt(sum('save') - sum('withdraw'))} />
+        <div className="pg-kpis">
+          <div className="dk dk-hero"><div className="dk-top"><span>Solde du mois</span><span className="hero-pill up" style={{ textTransform: 'capitalize' }}>{mLabel(m, true)}</span></div>
+            <div className="dk-v num">{net < 0 ? '−' : '+'}{fmt(Math.abs(net))}<small>FCFA</small></div>
+            <div className="acc-split">{inS + outS > 0 && <><i style={{ width: (inS / (inS + outS)) * 100 + '%', background: '#6EE7B7' }} /><i style={{ width: (outS / (inS + outS)) * 100 + '%', background: '#FCA5A5' }} /></>}</div>
+            <div className="acc-legend"><span><i style={{ background: '#6EE7B7' }} />Entrées <b>{fmt(inS)}</b></span><span><i style={{ background: '#FCA5A5' }} />Dépenses <b>{fmt(outS)}</b></span></div>
+            <svg className="dk-wave" viewBox="0 0 200 60" preserveAspectRatio="none"><path d="M0 45 C40 30 60 52 100 34 S160 18 200 26 L200 60 L0 60 Z" /></svg></div>
+          <div className="dk dk-g"><div className="dk-top"><span className="dk-ic"><ArrowDownLeft size={15} /></span><span>Entrées</span></div><div className="dk-v num pos">+{fmt(inS)}</div><div className="dk-f">{monthTx.filter((t) => t.kind === 'in').length} opération(s)</div></div>
+          <div className="dk dk-r"><div className="dk-top"><span className="dk-ic"><ArrowUpRight size={15} /></span><span>Dépenses</span></div><div className="dk-v num neg">−{fmt(outS)}</div><div className="dk-f">≈ {fmt(outS / Math.max(1, nDays))} par jour</div></div>
+          <div className="dk"><div className="dk-top"><span className="dk-ic"><List size={15} /></span><span>Opérations</span></div><div className="dk-v num">{monthTx.length}</div><div className="dk-f">{monthTx.filter((t) => t.kind === 'move').length} virement(s) · épargne nette {fmt(sum('save') - sum('withdraw'))}</div></div>
         </div>
-        <div className="card mt tbl" style={{ overflow: 'hidden' }}>
-          <div className="card-h">
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', opacity: qq ? 0.4 : 1 }}><button className="btn s sm" onClick={() => setM(addMonths(m, -1))}>‹</button><b style={{ minWidth: 120, textAlign: 'center', textTransform: 'capitalize' }}>{qq ? 'Toute la période' : mLabel(m, true)}</b><button className="btn s sm" onClick={() => setM(addMonths(m, 1))}>›</button></div>
-            <div className="search"><Search size={15} /><input ref={sRef} placeholder="Rechercher (libellé, montant, compte…)  Ctrl+K" value={q} onChange={(e) => setQ(e.target.value)} />{q && <button className="ib" onClick={() => setQ('')}><X size={13} /></button>}</div>
+
+        <div className="card ops-card">
+          <div className="ops-bar">
+            <div className="ops-month" style={{ opacity: qq ? 0.4 : 1 }}><button className="btn s sm" onClick={() => setM(addMonths(m, -1))}>‹</button><b>{qq ? 'Toute la période' : mLabel(m, true)}</b><button className="btn s sm" onClick={() => setM(addMonths(m, 1))}>›</button></div>
+            <div className="search ops-search"><Search size={15} /><input ref={sRef} placeholder="Rechercher un libellé, un montant, un compte…" value={q} onChange={(e) => setQ(e.target.value)} />{q ? <button className="ib" onClick={() => setQ('')}><X size={13} /></button> : <kbd>Ctrl K</kbd>}</div>
+            <Sel className="inp" style={{ width: 170 }} value={acc} onChange={(e) => setAcc(e.target.value)}><option value="all">Tous les comptes</option>{st.accounts.map((a) => <option key={a.id} value={a.id}>{a.nom}</option>)}</Sel>
+            <Sel className="inp" style={{ width: 180 }} value={cat} onChange={(e) => setCat(e.target.value)}><option value="all">Toutes catégories</option>{catsHere.map((c) => <option key={c} value={c}>{CATS[c]}</option>)}</Sel>
           </div>
-          <div className="card-h" style={{ paddingTop: 12 }}>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><Sel className="inp" style={{ width: 170, padding: '7px 10px' }} value={acc} onChange={(e) => setAcc(e.target.value)}><option value="all">Tous les comptes</option>{st.accounts.map((a) => <option key={a.id} value={a.id}>{a.nom}</option>)}</Sel>
-            <Sel className="inp" style={{ width: 180, padding: '7px 10px' }} value={cat} onChange={(e) => setCat(e.target.value)}><option value="all">Toutes les catégories</option>{catsHere.map((c) => <option key={c} value={c}>{CATS[c]}</option>)}</Sel></div>
+          <div className="ops-bar2">
             <div className="seg">{[['all', 'Tout'], ['in', 'Entrées'], ['out', 'Dépenses'], ['save', 'Épargne'], ['move', 'Virements']].map(([k, l]) => <button key={k} className={f === k ? 'on' : ''} onClick={() => setF(k)}>{l}</button>)}</div>
+            {filtersOn.length > 0 && <div className="ops-chips">{filtersOn.map(([k, l, fn]) => <button key={k} onClick={fn}>{l}<X size={12} /></button>)}<button className="link" onClick={() => { setAcc('all'); setCat('all'); setF('all'); setQ(''); }}>Tout effacer</button></div>}
+            <span className="ops-count">{list.length} opération{list.length > 1 ? 's' : ''} · <b className={'num ' + (tot >= 0 ? 'pos' : 'neg')}>{tot >= 0 ? '+' : '−'}{fmt(Math.abs(tot))}</b></span>
           </div>
-          {(qq || cat !== 'all') && <div className="muted" style={{ padding: '0 22px 12px', fontSize: 12.5 }}>{list.length} résultat{list.length > 1 ? 's' : ''} · solde {tot >= 0 ? '+' : '−'}{fmt(Math.abs(tot))} FCFA</div>}
-          {list.length ? (
-            <table>
-              <thead><tr><th>Date</th><th style={{ textAlign: 'left' }}>Libellé</th><th style={{ textAlign: 'left' }}>Catégorie</th><th style={{ textAlign: 'left' }}>Compte</th><th>Montant</th><th></th></tr></thead>
-              <tbody>{list.map((t) => (
-                <tr key={t.id} className="clickable" onDoubleClick={() => open('tx', { ...t, editId: t.id, montant: String(t.montant) })}><td className="muted">{dLabel(t.date)}</td><td style={{ textAlign: 'left', fontWeight: 500 }}>{t.label}</td>
-                  <td style={{ textAlign: 'left' }} className="muted">{t.kind === 'move' ? 'Virement' : t.goalId && (t.kind === 'save' || t.kind === 'withdraw' || t.ref?.startsWith('tr:')) ? gname(st, t.goalId) || 'Objectif supprimé' : CATS[t.cat]}</td>
-                  <td style={{ textAlign: 'left' }}>{t.kind === 'save' || t.kind === 'withdraw' ? <span className="muted">—</span> : <span className="acc-tag"><i style={{ background: (st.accounts.find((a) => a.id === accOf(t)) || {}).couleur }} />{accName(st, accOf(t))}{t.kind === 'move' && <> → <i style={{ background: (st.accounts.find((a) => a.id === t.toAccountId) || {}).couleur }} />{accName(st, t.toAccountId)}</>}</span>}</td>
-                  <td style={{ fontWeight: 600 }} className={tone(t.kind)}>{sign(t.kind)} {fmt(t.montant)}</td>
-                  <td style={{ width: 80 }}><div style={{ display: 'flex', justifyContent: 'flex-end' }}><button className="ib" title="Modifier" onClick={() => open('tx', { ...t, editId: t.id, montant: String(t.montant) })}><Pencil size={15} /></button><button className="ib" title={t.ref ? 'Annuler la validation' : 'Supprimer'} onClick={() => delTx(t.id)}>{t.ref ? <Undo2 size={15} /> : <Trash2 size={15} />}</button></div></td></tr>))}</tbody>
-            </table>) : <Empty icon={qq ? Search : List} title={qq ? 'Aucun résultat' : 'Aucune opération ce mois'} text={qq ? 'Essaie un autre mot ou un montant.' : 'Valide tes échéances ou ajoute une opération.'} />}
+          {selL.length > 0 && (
+            <div className="ops-bulk"><b>{selL.length} sélectionnée{selL.length > 1 ? 's' : ''}</b>
+              <Sel className="inp" style={{ width: 210 }} value="" onChange={(e) => e.target.value && recat(e.target.value)}><option value="">Changer de catégorie…</option>{CATS_OUT.map((c) => <option key={c} value={c}>{CATS[c]}</option>)}</Sel>
+              <button className="btn d sm" onClick={bulkDel}><Trash2 size={14} />Supprimer</button>
+              <button className="btn s sm" onClick={() => setSel(new Set())}>Annuler</button>
+            </div>)}
+          {groups.length ? groups.map((g) => (
+            <div key={g.d} className="ops-day">
+              <div className="ops-dh"><span>{dayTitle(g.d)}</span><span className={'num ' + (dayNet(g.l) >= 0 ? 'pos' : 'neg')}>{dayNet(g.l) >= 0 ? '+' : '−'}{fmt(Math.abs(dayNet(g.l)))}</span></div>
+              {g.l.map((t) => {
+                const a = accO(accOf(t)); const I = KIc(t); const isSel = sel.has(t.id);
+                return (
+                  <div key={t.id} className={'op-row k-' + t.kind + (isSel ? ' sel' : '')} onDoubleClick={() => open('tx', { ...t, editId: t.id, montant: String(t.montant) })}>
+                    <button className={'op-chk' + (isSel ? ' on' : '')} onClick={() => toggle(t.id)} title="Sélectionner">{isSel ? <Check size={13} /> : null}</button>
+                    <div className="op-ic"><I size={15} /></div>
+                    <div className="op-main">
+                      <div className="op-t">{t.label}{t.ref && <span className="badge">Échéance</span>}{t.partOf && <span className="badge">Partiel</span>}</div>
+                      <div className="op-s">{t.kind === 'move' ? 'Virement' : t.goalId && (t.kind === 'save' || t.kind === 'withdraw' || t.ref?.startsWith('tr:')) ? gname(st, t.goalId) || 'Objectif supprimé' : CATS[t.cat]}
+                        {t.kind !== 'save' && t.kind !== 'withdraw' && <> · <span className="acc-tag"><i style={{ background: a.couleur }} />{a.nom}{t.kind === 'move' && <> → <i style={{ background: accO(t.toAccountId).couleur }} />{accName(st, t.toAccountId)}</>}</span></>}</div>
+                    </div>
+                    <div className={'op-a num ' + tone(t.kind)}>{sign(t.kind)} {fmt(t.montant)}</div>
+                    <div className="op-act"><button className="ib" title="Modifier" onClick={() => open('tx', { ...t, editId: t.id, montant: String(t.montant) })}><Pencil size={15} /></button><button className="ib" title={t.ref ? 'Annuler la validation' : 'Supprimer'} onClick={() => delTx(t.id)}>{t.ref ? <Undo2 size={15} /> : <Trash2 size={15} />}</button></div>
+                  </div>);
+              })}
+            </div>)) : <Empty icon={qq ? Search : List} title={qq ? 'Aucun résultat' : 'Aucune opération'} text={qq ? 'Essaie un autre mot ou un montant.' : 'Valide tes échéances ou ajoute une opération.'} />}
+        </div>
+      </div>
+    </>
+  );
+}
+
+function Params({ st, set, setSettings, open, version, checkUpdate, lastBackup, doExcel, sendWeekly, makeReport }) {
+  const [auto, setAuto] = useState(null); const [upd, setUpd] = useState(null); const [defDir, setDefDir] = useState('');
+  const [sec, setSec] = useState('general');
+  useEffect(() => { if (native) { native.getAutoLaunch().then(setAuto); native.backupDefaultDir().then(setDefDir); } }, []);
+  const exp = async () => { const json = JSON.stringify(st, null, 2); const name = `kalis-sauvegarde-${todayISO()}.json`; if (native) native.saveFile(name, btoa(unescape(encodeURIComponent(json))), [{ name: 'Sauvegarde Kalis', extensions: ['json'] }]); else { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([json])); a.download = name; a.click(); } };
+  const imp = (e) => { const file = e.target.files?.[0]; if (!file) return; file.text().then((t) => { try { const s = migrate(JSON.parse(t)); if (s) set(s); else alert('Fichier non reconnu'); } catch (err) { alert('Fichier invalide'); } }); };
+  const S = st.settings;
+  const Sw = ({ on, onChange, disabled }) => <button type="button" className={'sw-t' + (on ? ' on' : '')} disabled={disabled} onClick={() => onChange(!on)} role="switch" aria-checked={!!on}><i /></button>;
+  const Row = ({ t, h, children }) => <div className="set-row"><div className="set-l"><b>{t}</b>{h && <span>{h}</span>}</div><div className="set-c">{children}</div></div>;
+  const SECS = [['general', 'Général', Settings], ['apparence', 'Apparence', Palette], ['rappels', 'Rappels', Bell], ['securite', 'Sécurité', ShieldCheck], ['sauvegarde', 'Sauvegarde', FolderOpen], ['maj', 'Mises à jour', RefreshCw], ['donnees', 'Données', Database], ['clavier', 'Raccourcis', Keyboard], ['apropos', 'À propos', Info]];
+  const go = (k) => { setSec(k); document.getElementById('set-' + k)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+  const Head = ({ id, icon: I, t, s }) => <div className="set-h" id={'set-' + id}><span className="set-hi"><I size={17} /></span><div><h3>{t}</h3>{s && <div className="sub">{s}</div>}</div></div>;
+  return (
+    <>
+      <Top title="Paramètres" sub={version ? `Kalis ${version}` : 'Kalis'} />
+      <div className="content set-wrap">
+        <nav className="set-nav">{SECS.map(([k, l, I]) => <button key={k} className={sec === k ? 'on' : ''} onClick={() => go(k)}><I size={15} />{l}</button>)}</nav>
+        <div className="set-body">
+          <div className="card set-card"><Head id="general" icon={Settings} t="Général" s="Point de départ et projection" />
+            <Row t="Date de départ" h="Les soldes de départ des comptes sont ceux de cette date"><input className="inp" style={{ width: 180 }} type="date" value={st.dateInitiale} onChange={(e) => set({ dateInitiale: e.target.value })} /></Row>
+            <Row t="Horizon de projection" h="Jusqu'où calculer la trajectoire"><input className="inp" style={{ width: 180 }} type="month" value={st.horizon} onChange={(e) => e.target.value && set({ horizon: e.target.value })} /></Row>
+            <Row t="Hypothèse de revenus" h="Pour les revenus variables (min–max)"><div className="seg">{[['bas', 'Prudente'], ['moyen', 'Moyenne'], ['haut', 'Haute']].map(([k, l]) => <button key={k} className={(st.hypothese || 'bas') === k ? 'on' : ''} onClick={() => set({ hypothese: k })}>{l}</button>)}</div></Row>
+            <Row t="Compter les revenus incertains" h="Dans la projection et le plan du mois"><Sw on={st.inclureIncertains !== false} onChange={(v) => set({ inclureIncertains: v })} /></Row>
+          </div>
+          <div className="card set-card"><Head id="apparence" icon={Palette} t="Apparence" s="« Automatique » suit le réglage de Windows" />
+            <div className="theme-cards">{[['light', Sun, 'Clair'], ['dark', Moon, 'Sombre'], ['system', Monitor, 'Automatique']].map(([m, I, l]) => (
+              <button key={m} className={'theme-card t-' + m + ((st.theme || 'light') === m ? ' on' : '')} onClick={() => set({ theme: m })}><span className="tc-prev"><i /><i /><i /></span><span className="tc-l"><I size={14} />{l}</span></button>))}</div>
+          </div>
+          <div className="card set-card"><Head id="rappels" icon={Bell} t="Rappels" s="Notifications Windows" />
+            <Row t="Échéances du jour et du lendemain" h="Une notification par jour"><Sw on={S.notif !== false} onChange={(v) => setSettings({ notif: v })} /></Row>
+            <Row t="Bilan de la semaine" h={<>Le dimanche soir · <a className="link" onClick={(e) => { e.preventDefault(); sendWeekly(true); }}>Voir maintenant</a></>}><Sw on={S.weekly !== false} onChange={(v) => setSettings({ weekly: v })} /></Row>
+            <Row t="Rapport PDF du mois écoulé" h={<>Le 1er, dans {'Documents\\Kalis\\Rapports'} · <a className="link" onClick={(e) => { e.preventDefault(); makeReport(prevMonth()); }}>Générer {mLabel(prevMonth(), true)}</a>{native && <> · <a className="link" onClick={async (e) => { e.preventDefault(); native.openPath(await native.reportDir()); }}>Ouvrir le dossier</a></>}</>}><Sw on={S.report !== false} onChange={(v) => setSettings({ report: v })} /></Row>
+            <Row t="Lancer Kalis au démarrage" h={native ? 'Démarre en réduit pour ne rater aucun rappel' : "Disponible dans l'application"}><Sw on={!!auto} disabled={!native} onChange={async (v) => native && setAuto(await native.setAutoLaunch(v))} /></Row>
+          </div>
+          <div className="card set-card"><Head id="securite" icon={ShieldCheck} t="Sécurité" s="Code PIN à l'ouverture · Ctrl+L pour verrouiller" />
+            <Row t="Code PIN" h={S.pinHash ? 'Demandé à chaque ouverture' : 'Aucun code défini'}>
+              {S.pinHash ? <div style={{ display: 'flex', gap: 8 }}><button className="btn s sm" onClick={() => open('pin')}><KeyRound size={14} />Changer</button><button className="btn d sm" onClick={() => setSettings({ pinHash: null })}>Désactiver</button></div> : <button className="btn p sm" onClick={() => open('pin')}><KeyRound size={14} />Définir</button>}
+            </Row>
+          </div>
+          <div className="card set-card"><Head id="sauvegarde" icon={FolderOpen} t="Sauvegarde automatique" s="Une copie par jour, 30 jours conservés" />
+            <Row t="Sauvegarde quotidienne" h={lastBackup ? `Dernière copie : ${lastBackup.split(/[\\/]/).pop()}` : 'Aucune copie dans cette session'}><Sw on={S.backup !== false} onChange={(v) => setSettings({ backup: v })} /></Row>
+            <Row t="Dossier" h={<span style={{ wordBreak: 'break-all' }}>{S.backupDir || defDir || 'Documents\\Kalis\\Sauvegardes'}</span>}>
+              <div style={{ display: 'flex', gap: 8 }}><button className="btn s sm" disabled={!native} onClick={async () => { const d = await native.chooseDir(); if (d) setSettings({ backupDir: d }); }}>Changer</button><button className="btn s sm" disabled={!native} onClick={() => native.openPath(S.backupDir || defDir)}>Ouvrir</button></div>
+            </Row>
+            <div className="set-tip"><Info size={14} />Choisis ton dossier Google Drive ou OneDrive pour avoir aussi une copie dans le cloud.</div>
+          </div>
+          <div className="card set-card"><Head id="maj" icon={RefreshCw} t="Mises à jour" s="Depuis GitHub (aurlin10/kalis)" />
+            <Row t="Vérifier automatiquement" h="Au démarrage puis toutes les 6 heures"><Sw on={S.autoUpdate !== false} onChange={(v) => setSettings({ autoUpdate: v })} /></Row>
+            <Row t={`Version installée : ${version || '—'}`} h={upd && upd !== 'loading' ? (upd.status === 'latest' ? 'Kalis est à jour' : upd.status === 'ready' ? `Version ${upd.version} prête, redémarre pour l'installer` : upd.message) : 'Dernière vérification inconnue'}>
+              <button className="btn s sm" disabled={!native || upd === 'loading'} onClick={async () => { setUpd('loading'); setUpd(await checkUpdate()); }}><RefreshCw size={14} className={upd === 'loading' ? 'spin' : ''} />Vérifier</button>
+            </Row>
+          </div>
+          <div className="card set-card"><Head id="donnees" icon={Database} t="Données" s="Tout est stocké sur ce PC" />
+            <div className="data-acts">
+              <button onClick={exp}><Download size={18} /><b>Exporter</b><span>Fichier JSON complet</span></button>
+              <button onClick={doExcel}><FileSpreadsheet size={18} /><b>Excel</b><span>Opérations, flux, projection</span></button>
+              <label><Upload size={18} /><b>Importer</b><span>Restaurer une sauvegarde</span><input type="file" accept=".json" hidden onChange={imp} /></label>
+            </div>
+            <div className="set-danger"><div><b>Réinitialiser Kalis</b><span>Efface toutes les données de ce PC. Pense à exporter avant.</span></div><button className="btn d sm" onClick={() => { if (window.confirm('Effacer toutes les données ?')) set(defaultState()); }}><RotateCcw size={14} />Réinitialiser</button></div>
+          </div>
+          <div className="card set-card"><Head id="clavier" icon={Keyboard} t="Raccourcis clavier" s="F1 affiche cette liste partout" /><KeysList /></div>
+          <div className="card set-card about"><Head id="apropos" icon={Info} t="À propos" />
+            <div className="about-b"><img src={logoUrl} alt="" /><div><b>Kalis {version || '2'}</b><span>Finances personnelles en FCFA · Wave, Orange Money, Djamo, Mixx by Yas</span><span className="muted">Données 100 % locales · Paul Aurlin Mikabissi</span></div></div>
+          </div>
         </div>
       </div>
     </>
@@ -1085,79 +1211,6 @@ function Operations({ st, open, delTx, doExcel, focusSearch }) {
 }
 
 // ================= PARAMÈTRES =================
-function Params({ st, set, setSettings, open, version, checkUpdate, lastBackup, doExcel, sendWeekly, makeReport }) {
-  const [auto, setAuto] = useState(null); const [upd, setUpd] = useState(null); const [defDir, setDefDir] = useState('');
-  useEffect(() => { if (native) { native.getAutoLaunch().then(setAuto); native.backupDefaultDir().then(setDefDir); } }, []);
-  const exp = async () => { const json = JSON.stringify(st, null, 2); const name = `kalis-sauvegarde-${todayISO()}.json`; if (native) native.saveFile(name, btoa(unescape(encodeURIComponent(json))), [{ name: 'Sauvegarde Kalis', extensions: ['json'] }]); else { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([json])); a.download = name; a.click(); } };
-  const imp = (e) => { const file = e.target.files?.[0]; if (!file) return; file.text().then((t) => { try { const s = migrate(JSON.parse(t)); if (s) set(s); else alert('Fichier non reconnu'); } catch (err) { alert('Fichier invalide'); } }); };
-  const S = st.settings;
-  const Toggle = ({ on, onChange, label, hint }) => (<label className="switch" style={{ alignItems: 'flex-start' }}><input type="checkbox" checked={!!on} onChange={(e) => onChange(e.target.checked)} /><span>{label}{hint && <span className="muted" style={{ display: 'block', fontSize: 12, fontWeight: 400 }}>{hint}</span>}</span></label>);
-  return (
-    <>
-      <Top title="Paramètres" sub={version ? `Kalis ${version}` : null} />
-      <div className="content" style={{ maxWidth: 940 }}>
-        <div className="grid g2">
-          <Card title="Point de départ" sub="Les soldes de départ se règlent compte par compte">
-            <div className="form f2">
-              <Field label="Date de départ"><input className="inp" type="date" value={st.dateInitiale} onChange={(e) => set({ dateInitiale: e.target.value })} /></Field>
-              <Field label="Horizon de projection"><input className="inp" type="month" value={st.horizon} onChange={(e) => e.target.value && set({ horizon: e.target.value })} /></Field>
-            </div>
-          </Card>
-          <Card title="Apparence" sub="« Auto » suit le réglage de Windows">
-            <div className="seg">{[['light', Sun, 'Clair'], ['dark', Moon, 'Sombre'], ['system', Monitor, 'Automatique']].map(([m, I, l]) => (
-              <button key={m} className={(st.theme || 'light') === m ? 'on' : ''} onClick={() => set({ theme: m })} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><I size={14} />{l}</button>))}</div>
-          </Card>
-          <Card title="Rappels" sub="Notifications Windows">
-            <div style={{ display: 'grid', gap: 12 }}>
-              <Toggle on={S.notif !== false} onChange={(v) => setSettings({ notif: v })} label="Me rappeler les échéances" hint="Une notification par jour pour ce qui tombe aujourd'hui ou demain" />
-              <Toggle on={S.weekly !== false} onChange={(v) => setSettings({ weekly: v })} label="Bilan de la semaine le dimanche soir" hint={<>Dépenses de la semaine, reste des budgets, échéances à venir · <a className="link" onClick={(e) => { e.preventDefault(); sendWeekly(true); }}>Voir maintenant</a></>} />
-              <Toggle on={S.report !== false} onChange={(v) => setSettings({ report: v })} label="Rapport PDF du mois écoulé, le 1er" hint={<>Enregistré dans {'Documents\\Kalis\\Rapports'} · <a className="link" onClick={(e) => { e.preventDefault(); makeReport(prevMonth()); }}>Générer celui de {mLabel(prevMonth(), true)}</a>{native && <> · <a className="link" onClick={async (e) => { e.preventDefault(); native.openPath(await native.reportDir()); }}>Ouvrir le dossier</a></>}</>} />
-              <Toggle on={!!auto} onChange={async (v) => native && setAuto(await native.setAutoLaunch(v))} label="Lancer Kalis au démarrage de Windows" hint={native ? 'Démarre en réduit, pour ne rater aucun rappel' : 'Disponible dans l\'application'} />
-            </div>
-          </Card>
-          <Card title="Sécurité" sub="Code PIN à l'ouverture">
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-              {S.pinHash ? <><span className="badge ok" style={{ marginLeft: 0 }}><ShieldCheck size={12} />PIN actif</span><button className="btn s sm" onClick={() => open('pin')}><KeyRound size={14} />Changer</button><button className="btn d sm" onClick={() => setSettings({ pinHash: null })}>Désactiver</button></>
-                : <button className="btn p sm" onClick={() => open('pin')}><KeyRound size={14} />Définir un code PIN</button>}
-            </div>
-            <div className="muted" style={{ fontSize: 12, marginTop: 10 }}>Ctrl+L verrouille l'application à tout moment.</div>
-          </Card>
-          <Card title="Sauvegarde automatique" sub="Une copie par jour, 30 jours conservés">
-            <div style={{ display: 'grid', gap: 12 }}>
-              <Toggle on={S.backup !== false} onChange={(v) => setSettings({ backup: v })} label="Activer la sauvegarde automatique" />
-              <div className="muted" style={{ fontSize: 12.5, wordBreak: 'break-all' }}>Dossier : <b style={{ color: 'var(--ink)' }}>{S.backupDir || defDir || 'Documents\\Kalis\\Sauvegardes'}</b></div>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <button className="btn s sm" disabled={!native} onClick={async () => { const d = await native.chooseDir(); if (d) setSettings({ backupDir: d }); }}><FolderOpen size={14} />Changer de dossier</button>
-                <button className="btn s sm" disabled={!native} onClick={() => native.openPath(S.backupDir || defDir)}>Ouvrir</button>
-              </div>
-              <div className="muted" style={{ fontSize: 12 }}>Astuce : choisis ton dossier Google Drive ou OneDrive pour une copie dans le cloud.{lastBackup && <><br />Dernière copie : {lastBackup.split(/[\\/]/).pop()}</>}</div>
-            </div>
-          </Card>
-          <Card title="Mises à jour" sub={version ? `Version installée : ${version}` : 'Depuis GitHub (aurlin10/kalis)'}>
-            <div style={{ display: 'grid', gap: 12 }}>
-              <Toggle on={S.autoUpdate !== false} onChange={(v) => setSettings({ autoUpdate: v })} label="Vérifier automatiquement" hint="Au démarrage puis toutes les 6 heures" />
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                <button className="btn s sm" disabled={!native || upd === 'loading'} onClick={async () => { setUpd('loading'); setUpd(await checkUpdate()); }}><RefreshCw size={14} />Vérifier maintenant</button>
-                {upd && upd !== 'loading' && <span className={'badge ' + (upd.status === 'error' ? 'r' : 'ok')} style={{ marginLeft: 0 }}>{upd.status === 'latest' ? 'Kalis est à jour' : upd.status === 'ready' ? `Version ${upd.version} prête` : upd.message}</span>}
-              </div>
-            </div>
-          </Card>
-        </div>
-        <Card title="Données" sub="Tout est stocké sur ce PC" style={{ marginTop: 16 }}>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button className="btn s" onClick={exp}><Download size={15} />Exporter (JSON)</button>
-            <button className="btn s" onClick={doExcel}><FileSpreadsheet size={15} />Exporter en Excel</button>
-            <label className="btn s" style={{ cursor: 'pointer' }}><Upload size={15} />Importer<input type="file" accept=".json" hidden onChange={imp} /></label>
-            <button className="btn d" style={{ marginLeft: 'auto' }} onClick={() => { if (window.confirm('Effacer toutes les données ?')) set(defaultState()); }}><RotateCcw size={15} />Réinitialiser</button>
-          </div>
-        </Card>
-        <Card title="Raccourcis clavier" style={{ marginTop: 16 }}>
-          <KeysList />
-        </Card>
-      </div>
-    </>
-  );
-}
 
 // ================= MODALES =================
 function Modal({ title, onClose, children, footer, onEnter }) {
