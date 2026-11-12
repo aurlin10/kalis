@@ -70,6 +70,27 @@ ipcMain.handle('pdf:export', async (e, name) => {
   return r.filePath;
 });
 
+// Rapport mensuel : HTML autonome rendu dans une fenêtre cachée puis imprimé en PDF
+ipcMain.handle('report:pdf', async (e, html, name, auto) => {
+  let file;
+  if (auto) { const d = path.join(app.getPath('documents'), 'Kalis', 'Rapports'); fs.mkdirSync(d, { recursive: true }); file = path.join(d, name); }
+  else {
+    const r = await dialog.showSaveDialog(win, { defaultPath: path.join(app.getPath('documents'), 'Kalis', 'Rapports', name), filters: [{ name: 'PDF', extensions: ['pdf'] }] });
+    if (r.canceled || !r.filePath) return null; file = r.filePath; fs.mkdirSync(path.dirname(file), { recursive: true });
+  }
+  const tmp = path.join(app.getPath('temp'), `kalis-report-${Date.now()}.html`);
+  fs.writeFileSync(tmp, html, 'utf8');
+  const w = new BrowserWindow({ show: false, width: 900, height: 1200, webPreferences: { sandbox: true, javascript: false } });
+  try {
+    await w.loadFile(tmp);
+    const data = await w.webContents.printToPDF({ printBackground: true, pageSize: 'A4', margins: { top: 0.55, bottom: 0.55, left: 0.5, right: 0.5 } });
+    fs.writeFileSync(file, data);
+  } finally { w.destroy(); try { fs.unlinkSync(tmp); } catch (err) {} }
+  if (!auto) shell.openPath(file);
+  return file;
+});
+ipcMain.handle('report:dir', () => path.join(app.getPath('documents'), 'Kalis', 'Rapports'));
+
 ipcMain.handle('autolaunch:get', () => app.getLoginItemSettings().openAtLogin);
 ipcMain.handle('autolaunch:set', (e, on) => {
   app.setLoginItemSettings({ openAtLogin: !!on, args: ['--minimized'] });

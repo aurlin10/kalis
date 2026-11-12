@@ -12,5 +12,7 @@ contextBridge.exposeInMainWorld('kalis', {
   getAutoLaunch: () => ipcRenderer.invoke('autolaunch:get'),
   setAutoLaunch: (on) => ipcRenderer.invoke('autolaunch:set', on),
   checkUpdate: () => ipcRenderer.invoke('update:check'),
+  reportPDF: (html, name, auto) => ipcRenderer.invoke('report:pdf', html, name, auto),
+  reportDir: () => ipcRenderer.invoke('report:dir'),
   relaunch: () => ipcRenderer.invoke('app:relaunch'),
 });

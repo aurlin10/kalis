@@ -3,6 +3,7 @@ import {
   LayoutGrid, LineChart as LineIc, Target, Repeat, Users, HandCoins, List, Settings, Plus, Check, Pencil, Trash2, X,
   ArrowDownLeft, ArrowUpRight, PiggyBank, Sun, Moon, Monitor, AlertTriangle, Info, Download, Upload, RotateCcw, Undo2, Wallet, CalendarDays,
   ArrowLeftRight, BarChart3, FlaskConical, Lock, Bell, Star, FileSpreadsheet, FileText, FolderOpen, RefreshCw, Gauge, PartyPopper, KeyRound, ShieldCheck, Smartphone, Keyboard, Power, Delete, Sparkles, Search, Trophy, Archive, History, CheckCheck, Clock, Banknote, ArchiveRestore, Zap, Tag, CalendarRange, UtensilsCrossed, Bus, HeartPulse, ShoppingBag, Ticket, CornerDownLeft, ChevronDown,
+  MessageCircle, Scale, ClipboardPaste, ListChecks, Copy, Send, Command, FileBarChart,
 } from 'lucide-react';
 import {
   AreaChart, Area, LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine,
@@ -11,8 +12,9 @@ import logoUrl from '../build/logo.svg';
 import {
   defaultState, balances, projection, pending, upcoming, occurrences, mkey, addMonths, mLabel, dLabel, fmt, fcfa, short, uid,
   CATS, CATS_IN, CATS_OUT, CATS_VIE, GOAL_COLORS, goalReach, monthDiff, todayISO, isActive, amountOf, spentVie, spentCat,
-  migrate, fixCat, budgetTotal, CATS_DEBT, accName, creanceOccs, monthStats, monthPlan, applyScenario, SCEN_TYPES, EVENT_PRESETS, daysIn, isGoalActive, applyCustomCats, amountSuggestions, weeklySummary, weekKey, paidMap,
+  migrate, fixCat, budgetTotal, CATS_DEBT, accName, creanceOccs, monthStats, monthPlan, applyScenario, SCEN_TYPES, EVENT_PRESETS, daysIn, isGoalActive, applyCustomCats, amountSuggestions, weeklySummary, weekKey, paidMap, parseSMS, prevMonth,
 } from './data.js';
+import { reportHTML } from './report.js';
 
 const STORE = 'kalis-data-v2';
 const load = () => { try { const s = migrate(JSON.parse(localStorage.getItem(STORE))); if (s) return s; } catch (e) {} return defaultState(); };
@@ -76,20 +78,38 @@ export default function App() {
   const undoRef = (ref) => { const v = st.done[ref]; if (typeof v === 'string') delTx(v); else setDone(ref, false); };
   const open = (type, data = null) => setModal({ type, data });
   const close = () => setModal(null);
+  const [focusSearch, setFocusSearch] = useState(0);
   const setSettings = (p) => setSt((s) => ({ ...s, settings: { ...s.settings, ...p } }));
   const addMany = (list) => list.forEach((t) => addTx(t));
 
   // Raccourcis clavier
   useEffect(() => {
     const h = (e) => {
-      if (!e.ctrlKey || locked) return;
+      if (locked) return;
+      if (e.key === 'F1') { e.preventDefault(); open('keys'); return; }
+      if (!e.ctrlKey) return;
       const k = e.key.toLowerCase();
+      const PG = ['dash', 'bilan', 'proj', 'scen', 'goals', 'comptes', 'budgets', 'flux', 'tont', 'cre'];
+      if (/^[0-9]$/.test(k) && !e.shiftKey) { e.preventDefault(); setModal(null); setPage(k === '0' ? 'ops' : PG[+k - 1]); return; }
       if (k === 'n') { e.preventDefault(); open('tx'); }
+      else if (k === 'j') { e.preventDefault(); open('adjust'); }
+      else if (k === 'm') { e.preventDefault(); open('sms', ''); }
+      else if (k === 'k') { e.preventDefault(); setModal(null); setPage('ops'); setFocusSearch((x) => x + 1); }
+      else if (k === '/' || e.key === '?') { e.preventDefault(); open('keys'); }
       else if (k === 'b' && !e.shiftKey) { e.preventDefault(); open('tx', { kind: 'move' }); }
       else if (k === 'l' && st.settings.pinHash) { e.preventDefault(); setModal(null); setLocked(true); }
     };
-    window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h);
-  }, [locked, st.settings.pinHash]);
+    window.addEventListener('keydown', h);
+    // Coller un SMS n'importe où (hors champ de saisie) ouvre l'import
+    const pst = (e) => {
+      if (locked || modal) return; const el = document.activeElement;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT')) return;
+      const txt = e.clipboardData?.getData('text') || '';
+      if (parseSMS(txt, st.accounts).length) { e.preventDefault(); open('sms', txt); }
+    };
+    window.addEventListener('paste', pst);
+    return () => { window.removeEventListener('keydown', h); window.removeEventListener('paste', pst); };
+  }, [locked, st.settings.pinHash, modal, st.accounts]);
 
   // Version + mise à jour automatique
   const checkUpdate = async () => { if (!native) return { status: 'error', message: 'Indisponible hors de l\'application' }; const r = await native.checkUpdate(); if (r.status === 'ready') setUpdate(r); return r; };
@@ -148,8 +168,25 @@ export default function App() {
     try { if (native) await native.exportPDF(name); else window.print(); } finally { document.body.classList.remove('printing'); document.documentElement.dataset.theme = prev; }
   };
   const doExcel = () => exportExcel(st, rows);
+  const makeReport = async (key, auto = false) => {
+    const html = reportHTML(st, key); const name = `Kalis-rapport-${key}.pdf`;
+    if (native?.reportPDF) return native.reportPDF(html, name, auto);
+    const w = window.open(URL.createObjectURL(new Blob([html], { type: 'text/html' }))); setTimeout(() => { try { w?.print(); } catch (e) {} }, 800); return null;
+  };
+  // Rapport du mois écoulé : généré automatiquement à partir du 1er
+  useEffect(() => {
+    if (!native?.reportPDF || st.settings.report === false) return;
+    const pk = prevMonth(); if (st.lastReport === pk || !st.transactions.some((t) => t.date.startsWith(pk))) return;
+    const t = setTimeout(async () => {
+      try {
+        const file = await makeReport(pk, true); set({ lastReport: pk });
+        if (file && typeof Notification !== 'undefined') { const n = new Notification(`Kalis · Rapport de ${mLabel(pk, true)}`, { body: 'Ton récap PDF du mois est prêt. Clique pour l’ouvrir.' }); n.onclick = () => native.openPath(file); }
+      } catch (e) {}
+    }, 9000);
+    return () => clearTimeout(t);
+  }, [st.lastReport, st.settings.report]);
 
-  const ctx = { st, set, bal, rows, upsert, remove, addTx, delTx, updateTx, setDone, undoRef, open, setPage, setSettings, setToast, sendWeekly, exportPDF, doExcel, version, update, checkUpdate, lastBackup, lock: () => setLocked(true) };
+  const ctx = { st, set, bal, rows, upsert, remove, addTx, delTx, updateTx, setDone, undoRef, open, setPage, setSettings, setToast, sendWeekly, exportPDF, doExcel, makeReport, focusSearch, version, update, checkUpdate, lastBackup, lock: () => setLocked(true) };
 
   const NAV = [
     ['Pilotage', [['dash', "Vue d'ensemble", LayoutGrid], ['bilan', 'Bilan mensuel', BarChart3], ['proj', 'Projection', LineIc], ['scen', 'Scénarios', FlaskConical], ['goals', 'Objectifs', Target]]],
@@ -212,6 +249,11 @@ export default function App() {
       {modal?.type === 'item' && <ItemModal item={modal.data} goals={st.goals} st={st} onClose={close} onOk={(it) => { upsert('items', it); close(); }} />}
       {modal?.type === 'goal' && <GoalModal goal={modal.data} onClose={close} onOk={(g) => { upsert('goals', g); close(); }} />}
       {modal?.type === 'tontine' && <TontineModal t={modal.data} goals={st.goals} onClose={close} onOk={(t) => { upsert('tontines', t); close(); }} />}
+      {modal?.type === 'adjust' && <AdjustModal init={modal.data} st={st} bal={bal} onClose={close} onOk={(list) => { const prev = st; addMany(list); setToast({ msg: list.length ? `${list.length} solde${list.length > 1 ? 's' : ''} ajusté${list.length > 1 ? 's' : ''}` : 'Soldes déjà justes', prev }); close(); }} />}
+      {modal?.type === 'sms' && <SmsModal text={modal.data} st={st} bal={bal} onClose={close} onOk={(list) => { const prev = st; addMany(list); setToast({ msg: `${list.filter((t) => t.cat !== 'frais' && t.cat !== 'ajust').length} opération(s) importée(s) depuis les SMS`, prev }); close(); }} />}
+      {modal?.type === 'relance' && <RelanceModal c={modal.data} st={st} onClose={close} onSent={(tel) => { upsert('creances', { ...modal.data, tel: tel || modal.data.tel, lastRelance: todayISO() }); close(); }} />}
+      {modal?.type === 'tri' && <TriModal st={st} updateTx={updateTx} onClose={close} />}
+      {modal?.type === 'keys' && <KeysModal onClose={close} />}
       {modal?.type === 'creance' && <CreanceModal c={modal.data} st={st} onClose={close} onOk={(c, mv) => { saveCreance(c, mv); close(); }} />}
     </div>
     </ThemeCtx.Provider>
@@ -364,7 +406,9 @@ function Dashboard({ st, bal, rows, open, setPage, addTx, setSettings, setToast,
   const lateN = due.filter((o) => o.late).length;
   if (lateN) alerts.push({ tone: 'o', icon: Clock, text: <><b>{lateN}</b> échéance{lateN > 1 ? 's' : ''} en retard</>, act: ['Valider', () => open('bulk', due)] });
   for (const c of CATS_VIE.filter((c) => +st.budgets[c] > 0 && spentCat(st, cur, c) > +st.budgets[c])) alerts.push({ tone: 'r', icon: Gauge, text: <>Budget <b>{CATS[c]}</b> dépassé de {fmt(spentCat(st, cur, c) - st.budgets[c])}</>, act: ['Voir', () => setPage('budgets')] });
-  for (const a of st.accounts.filter((a) => (bal.accounts[a.id] || 0) < 0)) alerts.push({ tone: 'r', icon: Smartphone, text: <><b>{a.nom}</b> est négatif ({fmt(bal.accounts[a.id])})</>, act: ['Voir', () => setPage('comptes')] });
+  for (const a of st.accounts.filter((a) => (bal.accounts[a.id] || 0) < 0)) alerts.push({ tone: 'r', icon: Smartphone, text: <><b>{a.nom}</b> est négatif ({fmt(bal.accounts[a.id])}) : une opération manque ?</>, act: ['Corriger', () => open('adjust', { accountId: a.id })] });
+  const nVie = st.transactions.filter((t) => t.kind === 'out' && t.cat === 'vie' && t.date.startsWith(cur)).length;
+  if (nVie >= 3) alerts.push({ tone: 'p', icon: ListChecks, text: <><b>{nVie}</b> dépenses en Vie courante à trier</>, act: ['Trier', () => open('tri')] });
   for (const g of goalsA) { const r = goalReach(rows, g); if (!r || monthDiff(g.echeance, r.key) > 0) alerts.push({ tone: 'o', icon: Target, text: <><b>{g.nom}</b> en retard sur l'échéance</>, act: ['Planifier', () => open('plan', g)] }); }
   for (const g of goalsA.filter((g) => (bal.goals[g.id] || 0) >= g.montant)) alerts.push({ tone: 'g', icon: Trophy, text: <><b>{g.nom}</b> : montant atteint</>, act: ['Clôturer', () => open('goalDone', g)] });
   for (const sg of amountSuggestions(st)) alerts.push({ tone: 'p', icon: RefreshCw, text: <><b>{sg.item.label}</b> : réel moyen {fmt(sg.avg)} (prévu {fmt(sg.item.montant)})</>, act: ['Ajuster', () => { upsert('items', { ...sg.item, montant: sg.avg }); setToast({ msg: `${sg.item.label} : ${fmt(sg.avg)} FCFA à partir de maintenant`, prev: st }); }] });
@@ -765,11 +809,11 @@ function Creances({ st, open, remove, undoRef }) {
             <div className="row" key={c.id}>
               <div className="ic"><HandCoins size={16} /></div>
               <div style={{ minWidth: 0, flex: 1 }}><div className="t">{c.nom}{n > 1 && <span className="badge">{paid.length}/{n} échéances</span>}</div>
-                <div className="s">{ok ? 'Soldé' : n > 1 ? `Prochaine : ${fmt(next.amount)} le ${dLabel(next.date)}` : `Prévu le ${dLabel(c.date)}`}{(() => { const t = c.initTx && st.transactions.find((x) => x.id === c.initTx); return t ? ` · ${sens === 'in' ? 'prêté' : 'reçu'} le ${dLabel(t.date)} ${sens === 'in' ? 'depuis' : 'sur'} ${accName(st, t.accountId)}` : ''; })()}</div>
+                <div className="s">{ok ? 'Soldé' : n > 1 ? `Prochaine : ${fmt(next.amount)} le ${dLabel(next.date)}` : `Prévu le ${dLabel(c.date)}`}{(() => { const t = c.initTx && st.transactions.find((x) => x.id === c.initTx); return t ? ` · ${sens === 'in' ? 'prêté' : 'reçu'} le ${dLabel(t.date)} ${sens === 'in' ? 'depuis' : 'sur'} ${accName(st, t.accountId)}` : ''; })()}{!ok && c.lastRelance ? ` · relancé le ${dLabel(c.lastRelance)}` : ''}{!ok && next && next.date < todayISO() ? <span className="badge warn" style={{ marginLeft: 6 }}>En retard</span> : null}</div>
                 {n > 1 && <div className="bar" style={{ height: 5, marginTop: 6, maxWidth: 260 }}><i style={{ width: (paidAmt / c.montant) * 100 + '%', background: sens === 'in' ? 'var(--pos)' : 'var(--neg)' }} /></div>}</div>
               <div className={'a ' + (sens === 'in' ? 'pos' : 'neg')}>{fmt(c.montant)}{n > 1 && <div className="muted" style={{ fontSize: 11.5, fontWeight: 500, textAlign: 'right' }}>reste {fmt(c.montant - paidAmt)}</div>}</div>
               {ok ? <><span className="badge ok">{sens === 'in' ? 'Reçu' : 'Payé'}</span><button className="ib" title="Annuler la dernière échéance" onClick={() => undoRef(paid[paid.length - 1].ref)}><Undo2 size={15} /></button></>
-                : <button className="btn s sm" onClick={() => open('confirm', next)}>{sens === 'in' ? 'Marquer reçu' : 'Marquer payé'}{n > 1 ? ` (${paid.length + 1}/${n})` : ''}</button>}
+                : <>{sens === 'in' && <button className="ib wa" title="Relancer sur WhatsApp" onClick={() => open('relance', c)}><MessageCircle size={15} /></button>}<button className="btn s sm" onClick={() => open('confirm', next)}>{sens === 'in' ? 'Marquer reçu' : 'Marquer payé'}{n > 1 ? ` (${paid.length + 1}/${n})` : ''}</button></>}
               <button className="ib" onClick={() => open('creance', c)}><Pencil size={15} /></button>
               <button className="ib" onClick={() => remove('creances', c.id)}><Trash2 size={15} /></button>
             </div>);
@@ -785,7 +829,9 @@ function Creances({ st, open, remove, undoRef }) {
 }
 
 // ================= OPÉRATIONS =================
-function Operations({ st, open, delTx, doExcel }) {
+function Operations({ st, open, delTx, doExcel, focusSearch }) {
+  const sRef = React.useRef(null);
+  useEffect(() => { if (focusSearch) setTimeout(() => sRef.current?.focus(), 50); }, [focusSearch]);
   const [f, setF] = useState('all');
   const [m, setM] = useState(mkey(new Date()));
   const [acc, setAcc] = useState('all');
@@ -801,10 +847,10 @@ function Operations({ st, open, delTx, doExcel }) {
   const catsHere = [...new Set(st.transactions.filter((t) => t.kind === 'in' || t.kind === 'out').map((t) => t.cat))].filter((c) => CATS[c]);
   const tot = list.reduce((s2, t) => s2 + (t.kind === 'in' ? t.montant : t.kind === 'out' ? -t.montant : 0), 0);
   const monthTx = st.transactions.filter((t) => t.date.startsWith(m) && (acc === 'all' || accOf(t) === acc || t.toAccountId === acc));
-  const sum = (k) => monthTx.filter((t) => t.kind === k).reduce((s, t) => s + t.montant, 0);
+  const sum = (k) => monthTx.filter((t) => t.kind === k && !CATS_DEBT.includes(t.cat)).reduce((s, t) => s + t.montant, 0);
   return (
     <>
-      <Top title="Opérations" sub="Mouvements enregistrés · Ctrl+N pour saisir"><button className="btn s" onClick={doExcel}><FileSpreadsheet size={15} />Excel</button><button className="btn s" onClick={() => open('tx', { kind: 'move' })}><ArrowLeftRight size={15} />Virement</button><button className="btn p" onClick={() => open('tx')}><Plus size={16} />Nouvelle opération</button></Top>
+      <Top title="Opérations" sub="Mouvements enregistrés · Ctrl+N pour saisir"><button className="btn s" onClick={() => open('sms', '')}><ClipboardPaste size={15} />Coller un SMS</button><button className="btn s" onClick={doExcel}><FileSpreadsheet size={15} />Excel</button><button className="btn s" onClick={() => open('tx', { kind: 'move' })}><ArrowLeftRight size={15} />Virement</button><button className="btn p" onClick={() => open('tx')}><Plus size={16} />Nouvelle opération</button></Top>
       <div className="content">
         <div className="grid g3">
           <Kpi icon={ArrowDownLeft} tone="g" k="Entrées du mois" v={<span className="pos">{fmt(sum('in'))}</span>} />
@@ -814,7 +860,7 @@ function Operations({ st, open, delTx, doExcel }) {
         <div className="card mt tbl" style={{ overflow: 'hidden' }}>
           <div className="card-h">
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', opacity: qq ? 0.4 : 1 }}><button className="btn s sm" onClick={() => setM(addMonths(m, -1))}>‹</button><b style={{ minWidth: 120, textAlign: 'center', textTransform: 'capitalize' }}>{qq ? 'Toute la période' : mLabel(m, true)}</b><button className="btn s sm" onClick={() => setM(addMonths(m, 1))}>›</button></div>
-            <div className="search"><Search size={15} /><input placeholder="Rechercher (libellé, montant, compte…)" value={q} onChange={(e) => setQ(e.target.value)} />{q && <button className="ib" onClick={() => setQ('')}><X size={13} /></button>}</div>
+            <div className="search"><Search size={15} /><input ref={sRef} placeholder="Rechercher (libellé, montant, compte…)  Ctrl+K" value={q} onChange={(e) => setQ(e.target.value)} />{q && <button className="ib" onClick={() => setQ('')}><X size={13} /></button>}</div>
           </div>
           <div className="card-h" style={{ paddingTop: 12 }}>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><select className="inp" style={{ width: 170, padding: '7px 10px' }} value={acc} onChange={(e) => setAcc(e.target.value)}><option value="all">Tous les comptes</option>{st.accounts.map((a) => <option key={a.id} value={a.id}>{a.nom}</option>)}</select>
@@ -839,7 +885,7 @@ function Operations({ st, open, delTx, doExcel }) {
 }
 
 // ================= PARAMÈTRES =================
-function Params({ st, set, setSettings, open, version, checkUpdate, lastBackup, doExcel, sendWeekly }) {
+function Params({ st, set, setSettings, open, version, checkUpdate, lastBackup, doExcel, sendWeekly, makeReport }) {
   const [auto, setAuto] = useState(null); const [upd, setUpd] = useState(null); const [defDir, setDefDir] = useState('');
   useEffect(() => { if (native) { native.getAutoLaunch().then(setAuto); native.backupDefaultDir().then(setDefDir); } }, []);
   const exp = async () => { const json = JSON.stringify(st, null, 2); const name = `kalis-sauvegarde-${todayISO()}.json`; if (native) native.saveFile(name, btoa(unescape(encodeURIComponent(json))), [{ name: 'Sauvegarde Kalis', extensions: ['json'] }]); else { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([json])); a.download = name; a.click(); } };
@@ -865,6 +911,7 @@ function Params({ st, set, setSettings, open, version, checkUpdate, lastBackup, 
             <div style={{ display: 'grid', gap: 12 }}>
               <Toggle on={S.notif !== false} onChange={(v) => setSettings({ notif: v })} label="Me rappeler les échéances" hint="Une notification par jour pour ce qui tombe aujourd'hui ou demain" />
               <Toggle on={S.weekly !== false} onChange={(v) => setSettings({ weekly: v })} label="Bilan de la semaine le dimanche soir" hint={<>Dépenses de la semaine, reste des budgets, échéances à venir · <a className="link" onClick={(e) => { e.preventDefault(); sendWeekly(true); }}>Voir maintenant</a></>} />
+              <Toggle on={S.report !== false} onChange={(v) => setSettings({ report: v })} label="Rapport PDF du mois écoulé, le 1er" hint={<>Enregistré dans {'Documents\\Kalis\\Rapports'} · <a className="link" onClick={(e) => { e.preventDefault(); makeReport(prevMonth()); }}>Générer celui de {mLabel(prevMonth(), true)}</a>{native && <> · <a className="link" onClick={async (e) => { e.preventDefault(); native.openPath(await native.reportDir()); }}>Ouvrir le dossier</a></>}</>} />
               <Toggle on={!!auto} onChange={async (v) => native && setAuto(await native.setAutoLaunch(v))} label="Lancer Kalis au démarrage de Windows" hint={native ? 'Démarre en réduit, pour ne rater aucun rappel' : 'Disponible dans l\'application'} />
             </div>
           </Card>
@@ -905,7 +952,7 @@ function Params({ st, set, setSettings, open, version, checkUpdate, lastBackup, 
           </div>
         </Card>
         <Card title="Raccourcis clavier" style={{ marginTop: 16 }}>
-          <div className="kbd-list"><span><kbd>Ctrl</kbd>+<kbd>N</kbd> Nouvelle opération</span><span><kbd>Ctrl</kbd>+<kbd>B</kbd> Virement entre comptes</span><span><kbd>Ctrl</kbd>+<kbd>L</kbd> Verrouiller</span><span><kbd>Entrée</kbd> Valider une fenêtre</span><span><kbd>Échap</kbd> Fermer</span></div>
+          <KeysList />
         </Card>
       </div>
     </>
@@ -1003,17 +1050,24 @@ function TxModal({ init, st, bal, goals, onClose, onOk, onFav }) {
   const cats = t.kind === 'in' ? CATS_IN : CATS_OUT;
   const ok = +t.montant > 0 && (!isG || t.goalId) && (!isM || (t.toAccountId && t.toAccountId !== t.accountId));
   const favs = (st.favoris || []).filter((f) => f.kind === t.kind || (!isG && !isM && (f.kind === 'in' || f.kind === 'out')));
+  const [cover, setCover] = useState(null);
+  const orig = init?.editId ? st.transactions.find((x) => x.id === init.editId) : null;
+  const before = (bal.accounts[t.accountId] || 0) + (orig && orig.accountId === t.accountId && (orig.kind === 'out' || orig.kind === 'move') ? orig.montant : 0) - (orig && orig.accountId === t.accountId && orig.kind === 'in' ? orig.montant : 0);
+  const after = (t.kind === 'out' || isM) && +t.montant > 0 ? before - +t.montant - (isM ? +fraisVal || 0 : 0) : null;
+  const deficit = after != null && after < 0 ? -after : 0;
+  const coverFrom = st.accounts.filter((a) => a.id !== t.accountId && a.id !== (isM ? t.toAccountId : null) && (bal.accounts[a.id] || 0) >= deficit).sort((a, b) => (bal.accounts[b.id] || 0) - (bal.accounts[a.id] || 0));
+  const withCover = (list) => (cover && deficit ? [{ date: t.date, label: `Virement ${accName(st, cover)} → ${accName(st, t.accountId)}`, kind: 'move', cat: 'virement', montant: deficit, accountId: cover, toAccountId: t.accountId }, ...list] : list);
   const submit = () => {
     if (!ok) return;
     const m = +t.montant;
     if (isM) {
       const list = [{ date: t.date, label: t.label || `Virement ${accName(st, t.accountId)} → ${accName(st, t.toAccountId)}`, kind: 'move', cat: 'virement', montant: m, accountId: t.accountId, toAccountId: t.toAccountId }];
       if (+fraisVal > 0) list.push({ date: t.date, label: `Frais · ${accName(st, t.accountId)} → ${accName(st, t.toAccountId)}`, kind: 'out', cat: 'frais', montant: +fraisVal, accountId: t.accountId });
-      return onOk(list);
+      return onOk(withCover(list));
     }
     const label = t.label || (isG ? `${t.kind === 'save' ? 'Épargne' : 'Retrait'} ${goals.find((g) => g.id === t.goalId)?.nom}` : CATS[t.cat]);
     const tx = { date: t.date, label, kind: t.kind, cat: isG ? 'epargne' : t.cat, montant: m, goalId: isG ? t.goalId : undefined, accountId: isG ? undefined : t.accountId };
-    onOk([tx], fav ? { id: uid(), label, kind: t.kind, cat: tx.cat, montant: m, accountId: t.accountId, goalId: tx.goalId } : null);
+    onOk(init?.editId ? [tx] : withCover([tx]), fav ? { id: uid(), label, kind: t.kind, cat: tx.cat, montant: m, accountId: t.accountId, goalId: tx.goalId } : null);
   };
   return (
     <Modal title={init?.editId ? "Modifier l'opération" : isM ? 'Virement entre comptes' : 'Nouvelle opération'} onClose={onClose} onEnter={submit}
@@ -1039,6 +1093,14 @@ function TxModal({ init, st, bal, goals, onClose, onOk, onFav }) {
           {!isG && <Field label={t.kind === 'in' ? 'Reçu sur' : 'Payé depuis'} span><AccPicker st={st} value={t.accountId} onChange={(v) => u({ accountId: v })} /></Field>}
         </>)}
       </div>
+      {deficit > 0 && (
+        <div className="alert warn neg-warn">
+          <div className="chip-ic"><AlertTriangle size={16} /></div>
+          <div style={{ flex: 1 }}><b>{accName(st, t.accountId)}</b> passerait à <b className="neg">−{fmt(deficit)}</b> FCFA (solde actuel {fmt(before)}).
+            {!init?.editId && coverFrom.length > 0 && <div className="cover-opts"><span className="muted">Virer d'abord {fmt(deficit)} depuis :</span>{coverFrom.slice(0, 4).map((a) => <button key={a.id} className={'chip-b' + (cover === a.id ? ' on' : '')} onClick={() => setCover(cover === a.id ? null : a.id)}><i style={{ background: a.couleur }} />{a.nom} · {short(bal.accounts[a.id] || 0)}</button>)}</div>}
+            {!coverFrom.length && <div className="muted" style={{ fontSize: 12.5, marginTop: 4 }}>Vérifie le solde réel du compte : une entrée a peut-être été oubliée.</div>}
+          </div>
+        </div>)}
       {!isM && !init?.editId && <label className="switch" style={{ marginTop: 14 }}><input type="checkbox" checked={fav} onChange={(e) => setFav(e.target.checked)} /><Star size={13} />Ajouter aux favoris pour la saisie rapide</label>}
     </Modal>
   );
@@ -1119,7 +1181,7 @@ function TontineModal({ t, goals, onClose, onOk }) {
 }
 
 function CreanceModal({ c, st, onClose, onOk }) {
-  const [x, setX] = useState({ id: uid(), sens: 'in', nom: '', montant: '', date: todayISO(), n: 1, ...(c || {}) });
+  const [x, setX] = useState(() => { const d = new Date(); d.setMonth(d.getMonth() + 1); return { id: uid(), sens: 'in', nom: '', tel: '', montant: '', date: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`, n: 1, ...(c || {}) }; });
   const t0 = x.initTx && st.transactions.find((t) => t.id === x.initTx);
   const isNew = !c?.id;
   const [mv, setMv] = useState({ on: isNew || !!t0, accountId: t0?.accountId || st.accounts[0]?.id, date: t0?.date || todayISO() });
@@ -1129,7 +1191,8 @@ function CreanceModal({ c, st, onClose, onOk }) {
     <Modal title={c?.id ? 'Modifier' : lend ? 'Nouvelle créance' : 'Nouvelle dette'} onClose={onClose} footer={<><button className="btn s" onClick={onClose}>Annuler</button><button className="btn p" disabled={!x.nom || !(+x.montant > 0)} onClick={() => onOk({ ...x, montant: +x.montant, n: Math.max(1, +x.n || 1) }, mv)}>Enregistrer</button></>}>
       <div className="seg" style={{ display: 'flex', marginBottom: 18 }}>{[['in', 'On me doit'], ['out', 'Je dois']].map(([k, l]) => <button key={k} style={{ flex: 1 }} className={x.sens === k ? 'on' : ''} onClick={() => u({ sens: k })}>{l}</button>)}</div>
       <div className="form f2">
-        <Field label="Personne" span><input className="inp" autoFocus value={x.nom} onChange={(e) => u({ nom: e.target.value })} /></Field>
+        <Field label="Personne"><input className="inp" autoFocus value={x.nom} onChange={(e) => u({ nom: e.target.value })} /></Field>
+        <Field label="Téléphone" hint="Facultatif · pour la relance WhatsApp"><input className="inp num" inputMode="tel" placeholder="77 000 00 00" value={x.tel || ''} onChange={(e) => u({ tel: e.target.value })} /></Field>
         <Field label="Montant total (FCFA)"><input className="inp num" type="number" value={x.montant} onChange={(e) => u({ montant: e.target.value })} /></Field>
         <Field label="Nombre d'échéances" hint={+x.n > 1 && +x.montant > 0 ? `${fmt(Math.floor(x.montant / x.n))} FCFA par mois` : '1 = en une seule fois'}><input className="inp num" type="number" min={1} max={60} value={x.n} onChange={(e) => u({ n: e.target.value })} /></Field>
         <Field label={(lend ? 'Remboursement · ' : 'À rembourser · ') + (+x.n > 1 ? '1re échéance' : 'date prévue')} span><input className="inp" type="date" value={x.date} onChange={(e) => u({ date: e.target.value })} /></Field>
@@ -1160,6 +1223,8 @@ function Comptes({ st, set, bal, open, upsert, remove }) {
   return (
     <>
       <Top title="Comptes" sub="Où se trouve ton argent">
+        <button className="btn s" onClick={() => open('sms', '')}><ClipboardPaste size={15} />Coller un SMS</button>
+        <button className="btn s" onClick={() => open('adjust')}><Scale size={15} />Ajuster les soldes</button>
         <button className="btn s" onClick={() => open('tx', { kind: 'move' })}><ArrowLeftRight size={15} />Virement</button>
         <button className="btn p" onClick={() => open('account')}><Plus size={16} />Ajouter un compte</button>
       </Top>
@@ -1177,6 +1242,7 @@ function Comptes({ st, set, bal, open, upsert, remove }) {
                 <div className="acc-top">
                   <div className="acc-badge" style={{ background: a.couleur }}>{a.nom.slice(0, 1)}</div>
                   <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 650 }}>{a.nom}</div><div className="muted" style={{ fontSize: 12 }}>Départ : {fmt(a.initial)}</div></div>
+                  <button className="ib" title="Ajuster sur le solde réel" onClick={() => open('adjust', { accountId: a.id })}><Scale size={15} /></button>
                   <button className="ib" onClick={() => open('account', a)}><Pencil size={15} /></button>
                 </div>
                 <div className={'acc-v num' + (v < 0 ? ' neg' : '')}>{fmt(v)} <small>FCFA</small></div>
@@ -1226,6 +1292,7 @@ function Budgets({ st, set, open, updateTx }) {
   const [m, setM] = useState(mkey(new Date()));
   const draft = st.budgets || {};
   const [saved, setSaved] = useState(false);
+  const nVieAll = st.transactions.filter((t) => t.kind === 'out' && t.cat === 'vie' && t.date.startsWith(m)).length;
   useEffect(() => { if (!saved) return; const t = setTimeout(() => setSaved(false), 1500); return () => clearTimeout(t); }, [saved]);
   // Enregistrement immédiat : chaque modification est sauvegardée sans bouton
   const setBudget = (c, v) => { const nb = { ...st.budgets }; if (+v > 0) nb[c] = +v; else delete nb[c]; set({ budgets: nb }); setSaved(true); };
@@ -1258,6 +1325,7 @@ function Budgets({ st, set, open, updateTx }) {
   return (
     <>
       <Top title="Budgets" sub="Plafonds mensuels de tes dépenses variables">
+        {nVieAll > 0 && <button className="btn s" onClick={() => open('tri')}><ListChecks size={15} />Trier Vie courante <span className="badge" style={{ marginLeft: 2 }}>{nVieAll}</span></button>}
         <span className={'save-ind' + (saved ? ' on' : '')}><Check size={14} />{saved ? 'Enregistré' : 'Enregistrement automatique'}</span>
       </Top>
       <div className="content">
@@ -1358,7 +1426,7 @@ function Budgets({ st, set, open, updateTx }) {
 // =====================================================================
 // ================= BILAN =============================================
 // =====================================================================
-function Bilan({ st, exportPDF }) {
+function Bilan({ st, exportPDF, makeReport }) {
   const c = useC(); const axis = axisOf(c);
   const [m, setM] = useState(mkey(new Date()));
   const s = monthStats(st, m); const prev = monthStats(st, addMonths(m, -1)); const plan = monthPlan(st, m);
@@ -1376,7 +1444,8 @@ function Bilan({ st, exportPDF }) {
     <>
       <Top title="Bilan mensuel" sub="Ce qui s'est vraiment passé">
         <div className="seg no-print"><button onClick={() => setM(addMonths(m, -1))}>‹</button><button className="on" style={{ minWidth: 130, textTransform: 'capitalize' }}>{mLabel(m, true)}</button><button onClick={() => setM(addMonths(m, 1))}>›</button></div>
-        <button className="btn s no-print" onClick={() => exportPDF(`Kalis-bilan-${m}.pdf`)}><FileText size={15} />PDF</button>
+        <button className="btn s no-print" onClick={() => exportPDF(`Kalis-bilan-${m}.pdf`)}><FileText size={15} />PDF de l'écran</button>
+        <button className="btn p no-print" onClick={() => makeReport(m)}><FileBarChart size={15} />Rapport du mois</button>
       </Top>
       <div className="content">
         <div className="grid g4">
@@ -1674,7 +1743,8 @@ function QuickAdd({ st, addTx, setSettings, setToast }) {
     if (!(+m > 0)) { ref.current?.focus(); return; }
     addTx({ date: todayISO(), label: CATS[cat], kind: 'out', cat, montant: +m, accountId: acc });
     setSettings({ quick: { ...q, cat, acc } });
-    setToast({ msg: `${fmt(+m)} FCFA · ${CATS[cat]} · ${accName(st, acc)}`, prev: st });
+    const left = (balances(st).accounts[acc] || 0) - +m;
+    setToast({ msg: `${fmt(+m)} FCFA · ${CATS[cat]} · ${accName(st, acc)}${left < 0 ? ` · attention, ${accName(st, acc)} passe à −${fmt(-left)}` : ''}`, prev: st });
     setM(''); ref.current?.focus();
   };
   const pick = (c) => { setCat(c); ref.current?.focus(); };
@@ -1750,4 +1820,189 @@ function CatModal({ onClose, onOk }) {
       </div>
     </Modal>
   );
+}
+
+// =====================================================================
+// ================= 1.9 : soldes réels, SMS, relances, tri ============
+// =====================================================================
+const AdjustModes = ({ mode, setMode }) => (
+  <div className="adj-modes">
+    {[['neutre', 'Simple correction', "Ne compte ni comme dépense ni comme entrée (bilan et budgets inchangés)"], ['oubli', 'Opérations oubliées', 'Écart négatif → dépense en Vie courante · écart positif → entrée « Autre »']].map(([k, l, h]) => (
+      <label key={k} className={'adj-mode' + (mode === k ? ' on' : '')}><input type="radio" checked={mode === k} onChange={() => setMode(k)} /><span><b>{l}</b><span className="muted">{h}</span></span></label>))}
+  </div>
+);
+const adjustTx = (st, accountId, ecart, mode, label = 'Ajustement de solde') => ({
+  date: todayISO(), label: mode === 'oubli' ? (ecart < 0 ? 'Dépenses non notées' : 'Entrée non notée') : label,
+  kind: ecart < 0 ? 'out' : 'in', cat: mode === 'oubli' ? (ecart < 0 ? 'vie' : 'autre') : 'ajust', montant: Math.abs(ecart), accountId,
+});
+
+function AdjustModal({ init, st, bal, onClose, onOk }) {
+  const [real, setReal] = useState({});
+  const [mode, setMode] = useState('neutre');
+  const accs = init?.accountId ? [...st.accounts.filter((a) => a.id === init.accountId), ...st.accounts.filter((a) => a.id !== init.accountId)] : st.accounts;
+  const rows = accs.map((a) => { const k = bal.accounts[a.id] || 0; const r = real[a.id]; const e = r === undefined || r === '' ? 0 : Math.round(+r - k); return { a, k, r, e }; });
+  const list = rows.filter((x) => x.e !== 0).map((x) => adjustTx(st, x.a.id, x.e, mode));
+  const submit = () => onOk(list);
+  return (
+    <Modal title="Ajuster sur les soldes réels" onClose={onClose} onEnter={submit}
+      footer={<><span className="muted" style={{ fontSize: 12.5, marginRight: 'auto' }}>{list.length ? `${list.length} correction${list.length > 1 ? 's' : ''}` : 'Saisis seulement les comptes à corriger'}</span><button className="btn s" onClick={onClose}>Annuler</button><button className="btn p" disabled={!list.length} onClick={submit}><Check size={15} />Ajuster</button></>}>
+      <div className="muted" style={{ fontSize: 13, marginBottom: 12 }}>Ouvre Wave, Orange Money… et tape le solde affiché. Kalis enregistre l'écart pour retomber juste.</div>
+      <div className="bulk-list">
+        {rows.map(({ a, k, r, e }, i) => (
+          <div className="bulk-row adj-row" key={a.id}>
+            <span className="acc-dot" style={{ background: a.couleur }} />
+            <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 600, fontSize: 13.5 }}>{a.nom}</div><div className="muted" style={{ fontSize: 12 }}>Dans Kalis : <span className={k < 0 ? 'neg' : ''}>{fmt(k)}</span></div></div>
+            {e !== 0 && <span className={'badge ' + (e < 0 ? 'r' : 'ok')} style={{ marginLeft: 0 }}>{e > 0 ? '+' : '−'}{fmt(Math.abs(e))}</span>}
+            <input className="inp num" style={{ width: 140, textAlign: 'right' }} type="number" autoFocus={i === 0} placeholder="Solde réel" value={r ?? ''} onChange={(ev) => setReal({ ...real, [a.id]: ev.target.value })} />
+          </div>))}
+      </div>
+      {list.length > 0 && <><div className="lbl" style={{ margin: '16px 0 8px' }}>Comment enregistrer l'écart ?</div><AdjustModes mode={mode} setMode={setMode} /></>}
+    </Modal>
+  );
+}
+
+function SmsModal({ text, st, bal, onClose, onOk }) {
+  const [raw, setRaw] = useState(text || '');
+  const [rows, setRows] = useState([]);
+  const [adj, setAdj] = useState({});
+  const [mode, setMode] = useState('neutre');
+  const parse = (txt) => {
+    const p = parseSMS(txt, st.accounts).map((x, i) => {
+      const accountId = x.accountId || st.accounts[0]?.id;
+      const dup = st.transactions.some((t) => t.montant === x.montant && t.date === x.date && (t.accountId || st.accounts[0]?.id) === accountId && t.kind === x.kind);
+      return { ...x, i, accountId, guessed: !x.accountId, dup, on: !dup, montant: String(x.montant), frais: x.frais ? String(x.frais) : '' };
+    });
+    setRows(p); setAdj({});
+  };
+  useEffect(() => { if (text) parse(text); }, []);
+  const u = (i, p) => setRows(rows.map((r) => (r.i === i ? { ...r, ...p } : r)));
+  const sel = rows.filter((r) => r.on && +r.montant > 0);
+  // Contrôle des soldes : dernier solde lu par compte vs solde Kalis après import
+  const checks = st.accounts.map((a) => {
+    const withSolde = rows.filter((r) => r.accountId === a.id && r.solde > 0);
+    if (!withSolde.length) return null;
+    const last = withSolde[withSolde.length - 1];
+    const k = (bal.accounts[a.id] || 0) + sel.filter((r) => r.accountId === a.id).reduce((s, r) => s + (r.kind === 'in' ? +r.montant : -(+r.montant) - (+r.frais || 0)), 0);
+    const e = Math.round(last.solde - k);
+    return e ? { a, sms: last.solde, k, e } : null;
+  }).filter(Boolean);
+  const submit = () => {
+    const list = [];
+    for (const r of sel) {
+      list.push({ date: r.date, label: r.label || CATS[r.cat], kind: r.kind, cat: r.cat, montant: +r.montant, accountId: r.accountId });
+      if (+r.frais > 0 && r.kind === 'out') list.push({ date: r.date, label: `Frais · ${r.label || CATS[r.cat]}`, kind: 'out', cat: 'frais', montant: +r.frais, accountId: r.accountId });
+    }
+    for (const c of checks) if (adj[c.a.id] !== false) list.push(adjustTx(st, c.a.id, c.e, mode, 'Ajustement · solde du SMS'));
+    onOk(list);
+  };
+  return (
+    <Modal title="Importer des SMS" onClose={onClose}
+      footer={<><span className="muted" style={{ fontSize: 12.5, marginRight: 'auto' }}>{rows.length ? `${sel.length} opération${sel.length > 1 ? 's' : ''} sélectionnée${sel.length > 1 ? 's' : ''}` : 'Astuce : Ctrl+V n’importe où dans Kalis ouvre cette fenêtre'}</span><button className="btn s" onClick={onClose}>Annuler</button><button className="btn p" disabled={!sel.length} onClick={submit}><Check size={15} />Importer</button></>}>
+      <textarea className="inp sms-area" rows={rows.length ? 3 : 7} autoFocus={!text} placeholder={"Colle ici un ou plusieurs SMS de Wave, Orange Money, Djamo ou Mixx by Yas.\nSépare plusieurs SMS par une ligne vide."} value={raw} onChange={(e) => { setRaw(e.target.value); parse(e.target.value); }} />
+      {raw && !rows.length && <div className="muted" style={{ fontSize: 13, marginTop: 10 }}>Aucun montant reconnu. Le SMS doit contenir un montant suivi de F ou FCFA.</div>}
+      {rows.length > 0 && <div className="bulk-list" style={{ marginTop: 12 }}>
+        {rows.map((r) => (
+          <div className={'sms-row' + (r.on ? '' : ' off')} key={r.i}>
+            <div className="sms-l1">
+              <input type="checkbox" checked={r.on} onChange={(e) => u(r.i, { on: e.target.checked })} />
+              <div className="seg sm">{[['out', 'Sortie'], ['in', 'Entrée']].map(([k, l]) => <button key={k} className={r.kind === k ? 'on' : ''} disabled={!r.on} onClick={() => u(r.i, { kind: k, cat: k === 'in' ? 'autre' : 'vie' })}>{l}</button>)}</div>
+              <input className="inp" style={{ flex: 1, minWidth: 120 }} disabled={!r.on} value={r.label} onChange={(e) => u(r.i, { label: e.target.value })} />
+              <input className="inp num" style={{ width: 110, textAlign: 'right' }} type="number" disabled={!r.on} value={r.montant} onChange={(e) => u(r.i, { montant: e.target.value })} />
+            </div>
+            <div className="sms-l2">
+              <input className="inp" type="date" disabled={!r.on} value={r.date} onChange={(e) => u(r.i, { date: e.target.value })} />
+              <select className="inp" disabled={!r.on} value={r.cat} onChange={(e) => u(r.i, { cat: e.target.value })}>{(r.kind === 'in' ? CATS_IN : CATS_OUT).map((c) => <option key={c} value={c}>{CATS[c]}</option>)}</select>
+              <select className={'inp' + (r.guessed ? ' guess' : '')} title={r.guessed ? 'Compte non reconnu dans le SMS : vérifie' : ''} disabled={!r.on} value={r.accountId} onChange={(e) => u(r.i, { accountId: e.target.value, guessed: false })}>{st.accounts.map((a) => <option key={a.id} value={a.id}>{a.nom}</option>)}</select>
+              {r.kind === 'out' && <label className="sms-fee">Frais <input className="inp num" type="number" disabled={!r.on} value={r.frais} placeholder="0" onChange={(e) => u(r.i, { frais: e.target.value })} /></label>}
+              {r.dup && <span className="badge warn" style={{ marginLeft: 0 }}>Déjà saisie ?</span>}
+              {r.guessed && <span className="badge warn" style={{ marginLeft: 0 }}>Compte à vérifier</span>}
+            </div>
+            <div className="sms-src">{r.sms}</div>
+          </div>))}
+      </div>}
+      {checks.length > 0 && <div className="sms-checks">
+        <div className="lbl" style={{ marginBottom: 8 }}>Soldes indiqués par les SMS</div>
+        {checks.map((c) => (
+          <label className="switch" key={c.a.id} style={{ display: 'flex', marginBottom: 8 }}><input type="checkbox" checked={adj[c.a.id] !== false} onChange={(e) => setAdj({ ...adj, [c.a.id]: e.target.checked })} />
+            <span>Mettre <b>{c.a.nom}</b> à {fmt(c.sms)} FCFA <span className="muted">(Kalis après import : {fmt(c.k)}, écart {c.e > 0 ? '+' : '−'}{fmt(Math.abs(c.e))})</span></span></label>))}
+        {checks.some((c) => adj[c.a.id] !== false) && <AdjustModes mode={mode} setMode={setMode} />}
+      </div>}
+    </Modal>
+  );
+}
+
+const waPhone = (t) => { let d = String(t || '').replace(/\D/g, ''); if (d.startsWith('00')) d = d.slice(2); if (d.length === 9 && /^[37]/.test(d)) d = '221' + d; return d; };
+function RelanceModal({ c, st, onClose, onSent }) {
+  const occ = creanceOccs(c); const next = occ.find((o) => !st.done[o.ref]);
+  const reste = occ.filter((o) => !st.done[o.ref]).reduce((s, o) => s + o.amount, 0);
+  const multi = occ.length > 1;
+  const late = next && next.date < todayISO();
+  const prenom = c.nom.split(' ')[0];
+  const dLong = (d) => d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' });
+  const delai = dLong(new Date(Date.now() + 3 * 864e5));
+  const quoi = multi ? `l'échéance de ${fmt(next.amount)} FCFA (il reste ${fmt(reste)} FCFA au total)` : `les ${fmt(reste)} FCFA que je t'ai prêtés`;
+  const quand = next ? dLong(new Date(next.date + 'T12:00:00')) : '';
+  const TONES = {
+    doux: `Salut ${prenom}, j'espère que tu vas bien. Je reviens vers toi pour ${quoi}${quand ? ` (remboursement prévu le ${quand})` : ''}. Tu penses pouvoir me faire le transfert quand ? Merci d'avance.`,
+    ferme: `Bonjour ${prenom}, ${multi ? `l'échéance de ${fmt(next.amount)} FCFA` : `le remboursement des ${fmt(reste)} FCFA`} ${late ? 'était' : 'est'} prévu${multi ? 'e' : ''} le ${quand}. Merci de me faire le transfert par Wave ou Orange Money d'ici le ${delai}.`,
+  };
+  const [tone, setTone] = useState('doux');
+  const [msg, setMsg] = useState(TONES.doux);
+  const [tel, setTel] = useState(c.tel || '');
+  const [copied, setCopied] = useState(false);
+  const pick = (k) => { setTone(k); setMsg(TONES[k]); };
+  const send = () => { const ph = waPhone(tel); window.open(`https://wa.me/${ph}?text=${encodeURIComponent(msg)}`, '_blank'); onSent(tel); };
+  const copy = async () => { try { await navigator.clipboard.writeText(msg); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch (e) {} };
+  return (
+    <Modal title={`Relancer ${c.nom}`} onClose={onClose}
+      footer={<><button className="btn s" style={{ marginRight: 'auto' }} onClick={copy}>{copied ? <Check size={15} /> : <Copy size={15} />}{copied ? 'Copié' : 'Copier'}</button><button className="btn s" onClick={onClose}>Annuler</button><button className="btn p" onClick={send}><Send size={15} />Ouvrir WhatsApp</button></>}>
+      <div className="seg" style={{ display: 'flex', marginBottom: 14 }}>{[['doux', 'Diplomate'], ['ferme', 'Ferme']].map(([k, l]) => <button key={k} style={{ flex: 1 }} className={tone === k ? 'on' : ''} onClick={() => pick(k)}>{l}</button>)}</div>
+      <div className="form f2">
+        <Field label="Message" span><textarea className="inp" rows={5} value={msg} onChange={(e) => setMsg(e.target.value)} /></Field>
+        <Field label="Téléphone WhatsApp" span hint={tel ? `Envoi au +${waPhone(tel)}` : 'Vide : WhatsApp te laissera choisir le contact'}><input className="inp num" inputMode="tel" placeholder="77 000 00 00" value={tel} onChange={(e) => setTel(e.target.value)} /></Field>
+      </div>
+      {c.lastRelance && <div className="muted" style={{ fontSize: 12.5, marginTop: 10 }}>Dernière relance le {dLabel(c.lastRelance)}.</div>}
+    </Modal>
+  );
+}
+
+function TriModal({ st, updateTx, onClose }) {
+  const [m, setM] = useState(mkey(new Date()));
+  const [same, setSame] = useState(true);
+  const list = st.transactions.filter((t) => t.kind === 'out' && t.cat === 'vie' && t.date.startsWith(m)).sort((a, b) => b.date.localeCompare(a.date));
+  const others = CATS_VIE.filter((c) => c !== 'vie');
+  const moveTo = (t, c) => {
+    const targets = same && t.label && t.label !== CATS.vie ? list.filter((x) => x.label === t.label) : [t];
+    for (const x of targets) updateTx(x.id, { cat: c, label: x.label === CATS.vie ? CATS[c] : x.label });
+  };
+  const total = list.reduce((s, t) => s + t.montant, 0);
+  return (
+    <Modal title="Trier la Vie courante" onClose={onClose}
+      footer={<><label className="switch" style={{ marginRight: 'auto' }}><input type="checkbox" checked={same} onChange={(e) => setSame(e.target.checked)} />Appliquer aux libellés identiques</label><button className="btn p" onClick={onClose}>Terminé</button></>}>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
+        <button className="btn s sm" onClick={() => setM(addMonths(m, -1))}>‹</button><b style={{ minWidth: 120, textAlign: 'center', textTransform: 'capitalize' }}>{mLabel(m, true)}</b><button className="btn s sm" disabled={m >= mkey(new Date())} onClick={() => setM(addMonths(m, 1))}>›</button>
+        <span className="muted" style={{ marginLeft: 'auto', fontSize: 12.5 }}>{list.length} à trier · {fmt(total)} FCFA</span>
+      </div>
+      <div className="bulk-list">
+        {list.map((t) => (
+          <div className="tri-row" key={t.id}>
+            <DChip iso={t.date} />
+            <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 550, fontSize: 13.5 }}>{t.label}</div><div className="muted" style={{ fontSize: 12 }}>{accName(st, t.accountId)} · <b className="num" style={{ color: 'var(--ink)' }}>{fmt(t.montant)}</b></div></div>
+            <div className="tri-tiles">{others.map((c) => <button key={c} title={CATS[c]} onClick={() => moveTo(t, c)}>{React.createElement(catIcon(c), { size: 15 })}<span>{CATS[c].split(' ')[0]}</span></button>)}
+              <select className="inp acc-sel" value="" title="Autre catégorie" onChange={(e) => e.target.value && moveTo(t, e.target.value)}><option value="">Autre…</option>{CATS_OUT.filter((c) => !CATS_VIE.includes(c)).map((c) => <option key={c} value={c}>{CATS[c]}</option>)}</select></div>
+          </div>))}
+        {!list.length && <div className="empty" style={{ padding: 28 }}><CheckCheck size={20} style={{ color: 'var(--pos)' }} /><div style={{ marginTop: 6 }}>Tout est trié pour {mLabel(m, true)}.</div></div>}
+      </div>
+    </Modal>
+  );
+}
+
+const KEYS = [
+  [['Ctrl', 'N'], 'Nouvelle opération'], [['Ctrl', 'B'], 'Virement entre comptes'], [['Ctrl', 'M'], 'Coller / importer un SMS'], [['Ctrl', 'J'], 'Ajuster les soldes réels'],
+  [['Ctrl', 'K'], 'Rechercher une opération'], [['Ctrl', '1…9'], 'Changer de page'], [['Ctrl', '0'], 'Opérations'], [['Ctrl', 'V'], 'Coller un SMS (hors champ)'],
+  [['Ctrl', 'L'], 'Verrouiller'], [['F1'], 'Cette aide'], [['Entrée'], 'Valider une fenêtre'], [['Échap'], 'Fermer'],
+];
+const KeysList = () => <div className="kbd-list">{KEYS.map(([k, l]) => <span key={l}>{k.map((x, i) => <React.Fragment key={x}>{i > 0 && '+'}<kbd>{x}</kbd></React.Fragment>)} {l}</span>)}</div>;
+function KeysModal({ onClose }) {
+  return <Modal title="Raccourcis clavier" onClose={onClose} footer={<button className="btn p" onClick={onClose}>Fermer</button>}><KeysList /><div className="muted" style={{ fontSize: 12.5, marginTop: 14 }}>Ctrl+1 Vue d'ensemble · 2 Bilan · 3 Projection · 4 Scénarios · 5 Objectifs · 6 Comptes · 7 Budgets · 8 Flux · 9 Tontines</div></Modal>;
 }

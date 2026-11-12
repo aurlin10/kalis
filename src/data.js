@@ -22,10 +22,10 @@ export const CATS = {
   logement: 'Logement', factures: 'Factures', abonnements: 'Abonnements', transport: 'Transport', alimentation: 'Alimentation',
   vie: 'Vie courante', sante: 'Santé', famille: 'Famille', epargne: 'Épargne objectif', autre: 'Autre',
   loisirs: 'Sorties & loisirs', shopping: 'Shopping', frais: 'Frais de transfert', evenement: 'Événement',
-  pret: 'Prêt accordé', emprunt: 'Emprunt reçu',
+  pret: 'Prêt accordé', emprunt: 'Emprunt reçu', ajust: 'Ajustement de solde',
 };
 // Mouvements de créances/dettes : changent les soldes mais ne sont ni revenus ni dépenses
-export const CATS_DEBT = ['pret', 'emprunt'];
+export const CATS_DEBT = ['pret', 'emprunt', 'ajust'];
 const real = (t) => !CATS_DEBT.includes(t.cat);
 export const CATS_IN = ['salaire', 'pension', 'freelance', 'remboursement', 'tontine', 'emprunt', 'autre'];
 export const CATS_OUT = ['alimentation', 'transport', 'loisirs', 'shopping', 'sante', 'famille', 'vie', 'logement', 'factures', 'abonnements', 'evenement', 'frais', 'tontine', 'remboursement', 'pret', 'autre'];
@@ -314,3 +314,49 @@ export const weeklySummary = (st, now = new Date()) => {
   const next = upcoming(st, 8).filter((o) => o.date > end && o.date <= lim);
   return { spent, budgetLeft: bt - vie, bt, next, nextOut: next.filter((o) => o.kind !== 'in').reduce((s, o) => s + o.amount, 0), nextIn: next.filter((o) => o.kind === 'in').reduce((s, o) => s + o.amount, 0) };
 };
+
+
+// ---------- Lecture des SMS Wave / Orange Money / Djamo / Mixx ----------
+const NUM = String.raw`(\d{1,3}(?:[ .  ,]\d{3})+|\d+)(?:[.,](\d{1,2}))?`;
+const toNum = (m) => (m ? +(m[1].replace(/[ .  ,]/g, '')) + (m[2] ? +('0.' + m[2]) : 0) : 0);
+const amt = (txt, re) => { const m = txt.match(re); return m ? Math.round(toNum(m)) : 0; };
+const CUR = String.raw`\s*(?:F\s?CFA|FCFA|CFA|XOF|F)\b`;
+export const parseSMS = (raw, accounts = []) => {
+  const chunks = String(raw || '').split(/\n\s*\n|\r\n\s*\r\n/).map((x) => x.replace(/\s+/g, ' ').trim()).filter(Boolean);
+  const out = [];
+  for (const txt of chunks) {
+    const low = txt.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+    const montant = amt(txt, new RegExp(NUM + CUR, 'i'));
+    if (!montant) continue;
+    const frais = amt(txt, new RegExp(String.raw`frais\s*(?:de\s*\w+\s*)?[:=]?\s*` + NUM, 'i'));
+    const solde = amt(txt, new RegExp(String.raw`solde(?:\s*(?:actuel|disponible|est\s*de|wave|om))*\s*[:=]?\s*(?:est\s*de\s*)?` + NUM, 'i'));
+    const isIn = /(recu|reception|credite|depot|vous avez recu|received|rembourse|cashback)/.test(low) && !/(retrait|envoye a|paiement de)/.test(low.slice(0, 40));
+    const kind = isIn ? 'in' : 'out';
+    let acc = null;
+    const pickAcc = (re) => accounts.find((a) => re.test(a.nom.toLowerCase()) || re.test(a.id));
+    if (/wave/.test(low)) acc = pickAcc(/wave/);
+    else if (/orange|\bom\b/.test(low)) acc = pickAcc(/orange|^om$/);
+    else if (/djamo/.test(low)) acc = pickAcc(/djamo/);
+    else if (/mixx|yas|free money/.test(low)) acc = pickAcc(/mixx|yas/);
+    const who = txt.match(/(?:^|\s)(?:de|du|à|a|vers|chez|pour)\s+(?:la\s+part\s+de\s+|le\s+)?([A-ZÀ-Ÿa-zà-ÿ'][\wÀ-ÿ' .-]{1,40}?)(?=\s*[(,.;:]|\s+\d|\s+le\s|\s+reussi|\s+effectu|\s+Frais|\s+Nouveau|\s+Ref|$)/);
+    let nom = who ? who[1].trim() : '';
+    if (/^(votre|vous|un|une|transfert|paiement|le|la)$/i.test(nom)) nom = '';
+    if (!nom) { const ph = txt.match(/(?:vers|à|au|du|de)\s+(?:le\s+)?((?:\+?221)?\s?7\d(?:\s?\d){7})/); if (ph) nom = ph[1].replace(/\s/g, ''); }
+    const dm = txt.match(/(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})/);
+    let date = todayISO();
+    if (dm) { const y = dm[3].length === 2 ? '20' + dm[3] : dm[3]; const d0 = `${y}-${dm[2].padStart(2, '0')}-${dm[1].padStart(2, '0')}`; if (!isNaN(new Date(d0))) date = d0; }
+    let cat = kind === 'in' ? 'autre' : 'vie';
+    if (kind === 'in' && /salaire|virement employeur/.test(low)) cat = 'salaire';
+    if (kind === 'out') {
+      if (/senelec|woyofal|sen'?eau|seneau|sde|canal|facture/.test(low)) cat = 'factures';
+      else if (/credit|pass |internet|forfait|recharge|yewwu|illimix/.test(low)) cat = 'abonnements';
+      else if (/yango|heetch|taxi|ter |dem dikk|brt|transport|carburant|total ?energies|shell/.test(low)) cat = 'transport';
+      else if (/auchan|carrefour|super ?u|marche|boutique|restaurant|resto|pharmacie/.test(low)) cat = /pharmacie/.test(low) ? 'sante' : 'alimentation';
+    }
+    const verb = kind === 'in' ? 'Reçu' : /paiement|achat|paye/.test(low) ? 'Paiement' : /retrait/.test(low) ? 'Retrait' : 'Envoi';
+    out.push({ sms: txt, kind, montant, frais, solde, accountId: acc?.id || null, date, cat, label: nom ? `${verb} ${kind === 'in' ? 'de' : verb === 'Paiement' ? 'chez' : 'à'} ${nom}` : verb });
+  }
+  return out;
+};
+
+export const prevMonth = (d = new Date()) => addMonths(mkey(d), -1);
