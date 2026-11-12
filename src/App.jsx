@@ -12,7 +12,7 @@ import logoUrl from '../build/logo.svg';
 import {
   defaultState, balances, projection, pending, upcoming, occurrences, mkey, addMonths, mLabel, dLabel, fmt, fcfa, short, uid,
   CATS, CATS_IN, CATS_OUT, CATS_VIE, GOAL_COLORS, goalReach, monthDiff, todayISO, isActive, amountOf, spentVie, spentCat,
-  migrate, fixCat, budgetTotal, CATS_DEBT, accName, creanceOccs, monthStats, monthPlan, applyScenario, SCEN_TYPES, EVENT_PRESETS, daysIn, isGoalActive, applyCustomCats, amountSuggestions, weeklySummary, weekKey, paidMap, parseSMS, prevMonth,
+  migrate, fixCat, budgetTotal, CATS_DEBT, accName, creanceOccs, monthStats, monthPlan, applyScenario, SCEN_TYPES, EVENT_PRESETS, daysIn, isGoalActive, applyCustomCats, amountSuggestions, weeklySummary, weekKey, paidMap, parseSMS, prevMonth, JOURS, habitToday, habitsMonthly, habitLogged, budgetTotal as bTotal,
 } from './data.js';
 import { reportHTML } from './report.js';
 
@@ -254,6 +254,7 @@ export default function App() {
       {modal?.type === 'relance' && <RelanceModal c={modal.data} st={st} onClose={close} onSent={(tel) => { upsert('creances', { ...modal.data, tel: tel || modal.data.tel, lastRelance: todayISO() }); close(); }} />}
       {modal?.type === 'tri' && <TriModal st={st} updateTx={updateTx} onClose={close} />}
       {modal?.type === 'keys' && <KeysModal onClose={close} />}
+      {modal?.type === 'habits' && <HabitsModal st={st} onClose={close} onOk={(habits, applyB) => { const prev = st; setSt((s) => { const ns = { ...s, settings: { ...s.settings, habits } }; if (applyB) { const nb = { ...s.budgets }; for (const [c, v] of Object.entries(applyB)) nb[c] = v; ns.budgets = nb; } return ns; }); setToast({ msg: applyB ? 'Habitudes enregistrées · budgets ajustés' : 'Habitudes enregistrées', prev }); close(); }} />}
       {modal?.type === 'creance' && <CreanceModal c={modal.data} st={st} onClose={close} onOk={(c, mv) => { saveCreance(c, mv); close(); }} />}
     </div>
     </ThemeCtx.Provider>
@@ -495,7 +496,7 @@ function Dashboard({ st, bal, rows, open, setPage, addTx, setSettings, setToast,
           </div>
         </div>
 
-        <QuickAdd st={st} addTx={addTx} setSettings={setSettings} setToast={setToast} />
+        <QuickAdd st={st} addTx={addTx} setSettings={setSettings} setToast={setToast} open={open} />
 
         {/* ---- Indicateurs rapides ---- */}
         <div className="tiles mt">
@@ -1292,6 +1293,7 @@ function Budgets({ st, set, open, updateTx }) {
   const [m, setM] = useState(mkey(new Date()));
   const draft = st.budgets || {};
   const [saved, setSaved] = useState(false);
+  const habM = habitsMonthly(st, m);
   const nVieAll = st.transactions.filter((t) => t.kind === 'out' && t.cat === 'vie' && t.date.startsWith(m)).length;
   useEffect(() => { if (!saved) return; const t = setTimeout(() => setSaved(false), 1500); return () => clearTimeout(t); }, [saved]);
   // Enregistrement immédiat : chaque modification est sauvegardée sans bouton
@@ -1325,6 +1327,7 @@ function Budgets({ st, set, open, updateTx }) {
   return (
     <>
       <Top title="Budgets" sub="Plafonds mensuels de tes dépenses variables">
+        <button className="btn s" onClick={() => open('habits')}><Repeat size={15} />Mes habitudes</button>
         {nVieAll > 0 && <button className="btn s" onClick={() => open('tri')}><ListChecks size={15} />Trier Vie courante <span className="badge" style={{ marginLeft: 2 }}>{nVieAll}</span></button>}
         <span className={'save-ind' + (saved ? ' on' : '')}><Check size={14} />{saved ? 'Enregistré' : 'Enregistrement automatique'}</span>
       </Top>
@@ -1371,6 +1374,7 @@ function Budgets({ st, set, open, updateTx }) {
                     {p > 0.85 && p <= 1 && <span className="badge warn" style={{ marginLeft: 0 }}>Presque atteint</span>}
                     {isCur && sp > 0 && <span className={'pace ' + (b && pace > b ? 'neg' : '')}>À ce rythme : <b className="num">{fmt(pace)}</b></span>}
                     {isCur && b > 0 && sp < b && daysLeft > 0 && <span className="pace">≈ <b className="num">{fmt((b - sp) / daysLeft)}</b> / jour possible</span>}
+                    {habM[c] > 0 && <span className={'pace' + (b && b < habM[c] ? ' neg' : '')} title="Coût de tes habitudes ce mois-ci">Habitudes : <b className="num">{fmt(habM[c])}</b>{b && b < habM[c] ? ' · budget trop bas' : ''}</span>}
                   </div>
                 </div>
                 {off ? <button className="btn s sm" onClick={() => setBudget(c, sugg[c] || Math.ceil(pace / 1000) * 1000)}><Plus size={13} />Budget {fmt(sugg[c] || Math.ceil(pace / 1000) * 1000)}</button> : null}
@@ -1733,7 +1737,7 @@ function GoalHistoryModal({ g, st, bal, onClose }) {
 const CAT_ICONS = { alimentation: UtensilsCrossed, transport: Bus, loisirs: Ticket, shopping: ShoppingBag, sante: HeartPulse, famille: Users, vie: Wallet };
 const catIcon = (c) => CAT_ICONS[c] || Tag;
 
-function QuickAdd({ st, addTx, setSettings, setToast }) {
+function QuickAdd({ st, addTx, setSettings, setToast, open }) {
   const q = st.settings.quick || {};
   const [m, setM] = useState('');
   const [cat, setCat] = useState(q.cat && CATS_VIE.includes(q.cat) ? q.cat : 'alimentation');
@@ -1748,6 +1752,18 @@ function QuickAdd({ st, addTx, setSettings, setToast }) {
     setM(''); ref.current?.focus();
   };
   const pick = (c) => { setCat(c); ref.current?.focus(); };
+  // Habitudes du jour + ce que je peux encore dépenser aujourd'hui
+  const habits = st.settings.habits || [];
+  const logHabit = (h) => {
+    addTx({ date: todayISO(), label: h.label, kind: 'out', cat: h.cat, montant: +h.montant, accountId: acc });
+    setToast({ msg: `${h.label} · ${fmt(h.montant)} FCFA · ${accName(st, acc)}`, prev: st });
+  };
+  const today = todayISO(); const cur = today.slice(0, 7);
+  const dimQ = new Date(+cur.slice(0, 4), +cur.slice(5, 7), 0).getDate(); const dayQ = +today.slice(8, 10);
+  const bt = bTotal(st);
+  const spentToday = st.transactions.filter((t) => t.kind === 'out' && t.date === today && CATS_VIE.includes(t.cat)).reduce((s2, t) => s2 + t.montant, 0);
+  const spentBefore = spentVie(st, cur) - spentToday;
+  const perDay = bt ? Math.max(0, (bt - spentBefore) / (dimQ - dayQ + 1)) : 0;
   const amount = (
     <div className="qa-amount">
       <input ref={ref} className="num" type="number" inputMode="numeric" placeholder="0" value={m} onChange={(e) => setM(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} />
@@ -1758,7 +1774,13 @@ function QuickAdd({ st, addTx, setSettings, setToast }) {
   return (
     <div className="card qb mt">
       <div className="qb-head"><div><b>Saisie express</b><span className="muted"> · dépense d'aujourd'hui</span></div>
+        {bt > 0 && <div className={'qb-today' + (spentToday > perDay ? ' over' : '')} title="Budgets du mois restants ÷ jours restants">Aujourd'hui <b className="num">{fmt(spentToday)}</b> / {fmt(perDay)} possibles</div>}
         <div className="qb-acc">{st.accounts.map((a) => <button key={a.id} className={acc === a.id ? 'on' : ''} onClick={() => setAcc(a.id)} title={a.nom}><i style={{ background: a.couleur }} />{a.nom}</button>)}</div></div>
+      <div className="qb-habits">
+        <span className="muted">Habitudes</span>
+        {habits.map((h) => { const done = habitLogged(st, h); const td = habitToday(h); return <button key={h.id} className={(done ? 'done ' : '') + (td ? '' : 'off')} title={done ? 'Déjà saisi aujourd’hui · cliquer pour en ajouter un autre' : `${CATS[h.cat]} · ${JOURS[h.jours] || ''}`} onClick={() => logHabit(h)}>{done ? <Check size={13} /> : React.createElement(catIcon(h.cat), { size: 13 })}{h.label}<b className="num">{fmt(h.montant)}</b></button>; })}
+        <button className="qb-hset" onClick={() => open('habits')} title="Gérer mes habitudes"><Settings size={13} />{habits.length ? '' : 'Ajouter mes habitudes'}</button>
+      </div>
       <div className="qb-body">
         <div className="qb-tiles">{CATS_VIE.map((c) => { const I = catIcon(c); return <button key={c} className={cat === c ? 'on' : ''} onClick={() => pick(c)}><span className="qb-ic"><I size={18} /></span>{CATS[c]}</button>; })}</div>
         <div className="qb-input">{amount}
@@ -2005,4 +2027,44 @@ const KEYS = [
 const KeysList = () => <div className="kbd-list">{KEYS.map(([k, l]) => <span key={l}>{k.map((x, i) => <React.Fragment key={x}>{i > 0 && '+'}<kbd>{x}</kbd></React.Fragment>)} {l}</span>)}</div>;
 function KeysModal({ onClose }) {
   return <Modal title="Raccourcis clavier" onClose={onClose} footer={<button className="btn p" onClick={onClose}>Fermer</button>}><KeysList /><div className="muted" style={{ fontSize: 12.5, marginTop: 14 }}>Ctrl+1 Vue d'ensemble · 2 Bilan · 3 Projection · 4 Scénarios · 5 Objectifs · 6 Comptes · 7 Budgets · 8 Flux · 9 Tontines</div></Modal>;
+}
+
+function HabitsModal({ st, onClose, onOk }) {
+  const [list, setList] = useState(() => (st.settings.habits || []).map((h) => ({ ...h, montant: String(h.montant) })));
+  const [extra, setExtra] = useState({});
+  const key = mkey(new Date());
+  const u = (i, p) => setList(list.map((h, j) => (j === i ? { ...h, ...p } : h)));
+  const clean = list.filter((h) => h.label.trim() && +h.montant > 0).map((h) => ({ ...h, label: h.label.trim(), montant: +h.montant }));
+  const monthly = habitsMonthly({ settings: { habits: clean } }, key);
+  const cats = [...new Set([...Object.keys(monthly), ...Object.keys(extra).filter((c) => +extra[c] > 0)])];
+  const proposal = Object.fromEntries(cats.map((c) => [c, Math.ceil(((monthly[c] || 0) + (+extra[c] || 0)) / 1000) * 1000]));
+  const total = Object.values(monthly).reduce((s, v) => s + v, 0);
+  return (
+    <Modal title="Mes habitudes" onClose={onClose}
+      footer={<><span className="muted" style={{ fontSize: 12.5, marginRight: 'auto', whiteSpace: 'nowrap' }}>≈ <b style={{ color: 'var(--ink)' }}>{fmt(total)}</b> / mois</span><button className="btn s" onClick={onClose}>Annuler</button><button className="btn s" onClick={() => onOk(clean, null)}>Enregistrer</button><button className="btn p" onClick={() => onOk(clean, proposal)}><Check size={15} />Ajuster les budgets</button></>}>
+      <div className="muted" style={{ fontSize: 13, marginBottom: 12 }}>Tes dépenses qui reviennent (repas, transport, sorties). Elles apparaissent en boutons dans la saisie express : un clic = une dépense, sans fourre-tout « Vie courante ».</div>
+      <div className="bulk-list">
+        {list.map((h, i) => (
+          <div className="bulk-row hab-row" key={h.id}>
+            <input className="inp" style={{ flex: 1, minWidth: 110 }} placeholder="ex. Petit-déj" value={h.label} onChange={(e) => u(i, { label: e.target.value })} />
+            <input className="inp num" style={{ width: 90, textAlign: 'right' }} type="number" value={h.montant} onChange={(e) => u(i, { montant: e.target.value })} />
+            <select className="inp acc-sel" value={h.cat} onChange={(e) => u(i, { cat: e.target.value })}>{CATS_VIE.map((c) => <option key={c} value={c}>{CATS[c]}</option>)}</select>
+            <select className="inp acc-sel" value={h.jours || 'tous'} onChange={(e) => u(i, { jours: e.target.value })}>{Object.entries(JOURS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
+            <button className="ib" title="Supprimer" onClick={() => setList(list.filter((_, j) => j !== i))}><Trash2 size={14} /></button>
+          </div>))}
+      </div>
+      <button className="btn s sm" style={{ marginTop: 10 }} onClick={() => setList([...list, { id: uid(), label: '', montant: '', cat: 'alimentation', jours: 'tous' }])}><Plus size={13} />Ajouter une habitude</button>
+      <div className="lbl" style={{ margin: '18px 0 8px' }}>Budget proposé pour {mLabel(key, true)}</div>
+      <div className="hab-bud">
+        {CATS_VIE.map((c) => (
+          <div key={c} className="hab-bud-row">
+            <span>{CATS[c]}</span>
+            <span className="muted num">{monthly[c] ? `${fmt(monthly[c])} habitudes` : '—'}</span>
+            <label className="muted">+ autre <input className="inp num" type="number" placeholder="0" value={extra[c] ?? ''} onChange={(e) => setExtra({ ...extra, [c]: e.target.value })} /></label>
+            <b className="num">{proposal[c] ? fmt(proposal[c]) : <span className="muted">{st.budgets[c] ? `garde ${fmt(st.budgets[c])}` : '—'}</span>}</b>
+          </div>))}
+      </div>
+      <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>« + autre » = ce qui n'est pas une habitude (provisions, marché, imprévus). Seules les catégories avec un montant sont modifiées.</div>
+    </Modal>
+  );
 }

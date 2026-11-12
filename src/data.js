@@ -41,6 +41,20 @@ export const EVENT_PRESETS = ['Tabaski', 'Korité', 'Magal', 'Rentrée scolaire'
 export const GOAL_COLORS = ['#4F46E5', '#0EA5E9', '#10B981', '#F59E0B', '#EC4899', '#8B5CF6'];
 export const SERIES = ['#0F5C4D', '#2F4B7C', '#8A5A2B', '#6B4E8A', '#3D6B8A', '#7A3E4D', '#5B6B3A', '#8B8F98'];
 
+// ---------- Habitudes : dépenses répétées, saisies en un clic ----------
+export const JOURS = { tous: 'Tous les jours', semaine: 'Lundi → vendredi', weekend: 'Samedi et dimanche', samedi: 'Le samedi', dimanche: 'Le dimanche' };
+export const DEFAULT_HABITS = [
+  { id: 'h_pdj', label: 'Petit-déj', cat: 'alimentation', montant: 1000, jours: 'semaine' },
+  { id: 'h_dej', label: 'Déjeuner', cat: 'alimentation', montant: 1000, jours: 'semaine' },
+  { id: 'h_din', label: 'Dîner', cat: 'alimentation', montant: 1500, jours: 'tous' },
+  { id: 'h_we', label: 'Sortie week-end', cat: 'loisirs', montant: 3000, jours: 'samedi' },
+];
+const dayMatch = (dow, j) => j === 'tous' || (j === 'semaine' && dow >= 1 && dow <= 5) || (j === 'weekend' && (dow === 0 || dow === 6)) || (j === 'samedi' && dow === 6) || (j === 'dimanche' && dow === 0);
+export const habitToday = (h, d = new Date()) => dayMatch(d.getDay(), h.jours || 'tous');
+export const habitDays = (key, jours) => { const [y, m] = key.split('-').map(Number); let n = 0; for (let d = 1; d <= new Date(y, m, 0).getDate(); d++) if (dayMatch(new Date(y, m - 1, d).getDay(), jours)) n++; return n; };
+export const habitsMonthly = (st, key) => { const out = {}; for (const h of st.settings?.habits || []) out[h.cat] = (out[h.cat] || 0) + (+h.montant || 0) * habitDays(key, h.jours || 'tous'); return out; };
+export const habitLogged = (st, h, day = todayISO()) => st.transactions.some((t) => t.date === day && t.kind === 'out' && t.label === h.label);
+
 export const defaultState = () => ({
   version: 3,
   dateInitiale: todayISO(),
@@ -49,7 +63,7 @@ export const defaultState = () => ({
   customCats: [],
   favoris: [],
   scenarios: [],
-  settings: { notif: true, backup: true, backupDir: null, pinHash: null, autoUpdate: true, autostart: false },
+  settings: { notif: true, backup: true, backupDir: null, pinHash: null, autoUpdate: true, autostart: false, habits: DEFAULT_HABITS },
   hypothese: 'bas', // bas | moyen | haut  (revenus variables)
   inclureIncertains: true,
   horizon: '2027-12',
