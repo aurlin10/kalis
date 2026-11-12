@@ -22,9 +22,13 @@ export const CATS = {
   logement: 'Logement', factures: 'Factures', abonnements: 'Abonnements', transport: 'Transport', alimentation: 'Alimentation',
   vie: 'Vie courante', sante: 'Santé', famille: 'Famille', epargne: 'Épargne objectif', autre: 'Autre',
   loisirs: 'Sorties & loisirs', shopping: 'Shopping', frais: 'Frais de transfert', evenement: 'Événement',
+  pret: 'Prêt accordé', emprunt: 'Emprunt reçu',
 };
-export const CATS_IN = ['salaire', 'pension', 'freelance', 'remboursement', 'tontine', 'autre'];
-export const CATS_OUT = ['alimentation', 'transport', 'loisirs', 'shopping', 'sante', 'famille', 'vie', 'logement', 'factures', 'abonnements', 'evenement', 'frais', 'tontine', 'remboursement', 'autre'];
+// Mouvements de créances/dettes : changent les soldes mais ne sont ni revenus ni dépenses
+export const CATS_DEBT = ['pret', 'emprunt'];
+const real = (t) => !CATS_DEBT.includes(t.cat);
+export const CATS_IN = ['salaire', 'pension', 'freelance', 'remboursement', 'tontine', 'emprunt', 'autre'];
+export const CATS_OUT = ['alimentation', 'transport', 'loisirs', 'shopping', 'sante', 'famille', 'vie', 'logement', 'factures', 'abonnements', 'evenement', 'frais', 'tontine', 'remboursement', 'pret', 'autre'];
 // Catégories de dépenses variables, pilotées par les budgets
 export const CATS_VIE = ['alimentation', 'transport', 'loisirs', 'shopping', 'sante', 'famille', 'vie'];
 export const ACCOUNT_PRESETS = [
@@ -59,6 +63,7 @@ export const defaultState = () => ({
 
 // ---------- Migration ----------
 export const fixCat = (x) => {
+  if (CATS_DEBT.includes(x.cat)) return x;
   if (x.kind === 'in' && !CATS_IN.includes(x.cat)) return { ...x, cat: 'salaire' };
   if (x.kind === 'out' && !CATS_OUT.includes(x.cat)) return { ...x, cat: 'autre' };
   return x;
@@ -145,7 +150,7 @@ export const creanceOccs = (c) => {
     const key = addMonths(k0, i);
     const amount = i === n - 1 ? +c.montant - part * (n - 1) : part;
     const lbl = c.sens === 'out' ? `Remboursement à ${c.nom}` : `Remboursement de ${c.nom}`;
-    return { ref: `cr:${c.id}:${key}`, key, label: n > 1 ? `${lbl} (${i + 1}/${n})` : lbl, kind: c.sens === 'out' ? 'out' : 'in', cat: 'remboursement', amount, date: dateIn(key, jour) };
+    return { ref: `cr:${c.id}:${key}`, key, label: n > 1 ? `${lbl} (${i + 1}/${n})` : lbl, kind: c.sens === 'out' ? 'out' : 'in', cat: c.initTx ? (c.sens === 'out' ? 'emprunt' : 'pret') : 'remboursement', amount, date: dateIn(key, jour) };
   });
 };
 // Échéances de créances passées et non soldées — reportées dans le mois courant
@@ -230,7 +235,7 @@ export const goalReach = (rows, goal) => rows.find((r) => (r.goals[goal.id] || 0
 
 // ---------- Bilan ----------
 export const monthStats = (st, key) => {
-  const tx = st.transactions.filter((t) => t.date.startsWith(key));
+  const tx = st.transactions.filter((t) => t.date.startsWith(key) && real(t));
   const sum = (f) => tx.filter(f).reduce((s, t) => s + (+t.montant || 0), 0);
   const entrees = sum((t) => t.kind === 'in');
   const sorties = sum((t) => t.kind === 'out');
@@ -303,7 +308,7 @@ const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate(
 export const weekKey = (d = new Date()) => { const x = new Date(d); const day = (x.getDay() + 6) % 7; x.setDate(x.getDate() - day); return iso(x); };
 export const weeklySummary = (st, now = new Date()) => {
   const start = weekKey(now); const end = iso(now);
-  const spent = st.transactions.filter((t) => t.kind === 'out' && t.date >= start && t.date <= end).reduce((s, t) => s + t.montant, 0);
+  const spent = st.transactions.filter((t) => t.kind === 'out' && real(t) && t.date >= start && t.date <= end).reduce((s, t) => s + t.montant, 0);
   const cur = mkey(now); const bt = budgetTotal(st); const vie = spentVie(st, cur);
   const n7 = new Date(now.getTime() + 7 * 864e5); const lim = iso(n7);
   const next = upcoming(st, 8).filter((o) => o.date > end && o.date <= lim);

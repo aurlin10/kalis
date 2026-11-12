@@ -556,3 +556,4 @@ tr.clickable { cursor: default; }
 .pace.neg b { color: var(--neg); }
 .off-budget { background: color-mix(in srgb, var(--warn-soft) 55%, transparent); }
 @media (max-width: 900px) { .bud-name { width: 140px; } }
+.debt-move { margin-top: 18px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--soft, rgba(79,70,229,.04)); }

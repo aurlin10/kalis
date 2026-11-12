@@ -11,7 +11,7 @@ import logoUrl from '../build/logo.svg';
 import {
   defaultState, balances, projection, pending, upcoming, occurrences, mkey, addMonths, mLabel, dLabel, fmt, fcfa, short, uid,
   CATS, CATS_IN, CATS_OUT, CATS_VIE, GOAL_COLORS, goalReach, monthDiff, todayISO, isActive, amountOf, spentVie, spentCat,
-  migrate, fixCat, budgetTotal, accName, creanceOccs, monthStats, monthPlan, applyScenario, SCEN_TYPES, EVENT_PRESETS, daysIn, isGoalActive, applyCustomCats, amountSuggestions, weeklySummary, weekKey, paidMap,
+  migrate, fixCat, budgetTotal, CATS_DEBT, accName, creanceOccs, monthStats, monthPlan, applyScenario, SCEN_TYPES, EVENT_PRESETS, daysIn, isGoalActive, applyCustomCats, amountSuggestions, weeklySummary, weekKey, paidMap,
 } from './data.js';
 
 const STORE = 'kalis-data-v2';
@@ -46,7 +46,28 @@ export default function App() {
   const [toast, setToast] = useState(null);
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 7000); return () => clearTimeout(t); }, [toast]);
   const NOMS = { items: 'Flux supprimé', goals: 'Objectif supprimé', tontines: 'Tontine supprimée', creances: 'Créance supprimée', accounts: 'Compte supprimé' };
-  const remove = (coll, id) => { setToast({ msg: NOMS[coll] || 'Élément supprimé', prev: st }); setSt((s) => ({ ...s, [coll]: s[coll].filter((x) => x.id !== id) })); };
+  const remove = (coll, id) => {
+    const linked = coll === 'creances' ? st.creances.find((x) => x.id === id)?.initTx : null;
+    setToast({ msg: linked ? (st.creances.find((x) => x.id === id).sens === 'in' ? 'Créance supprimée · le prêt est annulé sur le solde' : 'Dette supprimée · l’emprunt est retiré du solde') : NOMS[coll] || 'Élément supprimé', prev: st });
+    setSt((s) => ({ ...s, [coll]: s[coll].filter((x) => x.id !== id), ...(linked ? { transactions: s.transactions.filter((t) => t.id !== linked) } : {}) }));
+  };
+  // Créance / dette : l'argent prêté sort d'un compte, l'argent emprunté y entre
+  const saveCreance = (c, mv) => {
+    const prev = st;
+    setSt((s) => {
+      let tx = s.transactions; let cc = { ...c };
+      const old = cc.initTx && tx.find((t) => t.id === cc.initTx);
+      if (!old) delete cc.initTx;
+      if (mv.on) {
+        const t = { kind: c.sens === 'in' ? 'out' : 'in', cat: c.sens === 'in' ? 'pret' : 'emprunt', label: c.sens === 'in' ? `Prêt à ${c.nom}` : `Emprunt auprès de ${c.nom}`, montant: c.montant, accountId: mv.accountId, date: mv.date };
+        if (old) tx = tx.map((x) => (x.id === old.id ? { ...x, ...t } : x));
+        else { const id = uid(); tx = [{ id, ...t }, ...tx]; cc.initTx = id; }
+      } else if (old) { tx = tx.filter((x) => x.id !== old.id); delete cc.initTx; }
+      const exists = s.creances.some((x) => x.id === cc.id);
+      return { ...s, transactions: tx, creances: exists ? s.creances.map((x) => (x.id === cc.id ? cc : x)) : [...s.creances, cc] };
+    });
+    if (mv.on) setToast({ msg: c.sens === 'in' ? `${fmt(c.montant)} FCFA prêtés à ${c.nom} · retirés de ${accName(st, mv.accountId)}` : `${fmt(c.montant)} FCFA empruntés à ${c.nom} · ajoutés sur ${accName(st, mv.accountId)}`, prev });
+  };
   const updateTx = (id, nt) => setSt((s) => ({ ...s, transactions: s.transactions.map((x) => (x.id === id ? { ...x, ...nt, id, ref: x.ref } : x)) }));
   const addTx = (tx, ref) => setSt((s) => { const t = { id: uid(), ...tx, ref }; const done = { ...s.done }; if (ref) done[ref] = t.id; return { ...s, transactions: [t, ...s.transactions], done }; });
   const delTx = (id) => { const t0 = st.transactions.find((x) => x.id === id); setToast({ msg: t0?.ref ? 'Validation annulée' : 'Opération supprimée', prev: st }); delTx0(id); };
@@ -191,7 +212,7 @@ export default function App() {
       {modal?.type === 'item' && <ItemModal item={modal.data} goals={st.goals} st={st} onClose={close} onOk={(it) => { upsert('items', it); close(); }} />}
       {modal?.type === 'goal' && <GoalModal goal={modal.data} onClose={close} onOk={(g) => { upsert('goals', g); close(); }} />}
       {modal?.type === 'tontine' && <TontineModal t={modal.data} goals={st.goals} onClose={close} onOk={(t) => { upsert('tontines', t); close(); }} />}
-      {modal?.type === 'creance' && <CreanceModal c={modal.data} onClose={close} onOk={(c) => { upsert('creances', c); close(); }} />}
+      {modal?.type === 'creance' && <CreanceModal c={modal.data} st={st} onClose={close} onOk={(c, mv) => { saveCreance(c, mv); close(); }} />}
     </div>
     </ThemeCtx.Provider>
   );
@@ -327,7 +348,7 @@ function Dashboard({ st, bal, rows, open, setPage, addTx, setSettings, setToast,
   const ms = monthStats(st, cur); const mp = monthPlan(st, cur);
   const sortiesPrev = mp.charges + mp.vie;
   const d7 = new Date(Date.now() - 6 * 864e5); const d7iso = `${d7.getFullYear()}-${String(d7.getMonth() + 1).padStart(2, '0')}-${String(d7.getDate()).padStart(2, '0')}`;
-  const outs = st.transactions.filter((t) => t.kind === 'out');
+  const outs = st.transactions.filter((t) => t.kind === 'out' && !CATS_DEBT.includes(t.cat));
   const spentToday = outs.filter((t) => t.date === today).reduce((s, t) => s + t.montant, 0);
   const spent7 = outs.filter((t) => t.date >= d7iso && t.date <= today).reduce((s, t) => s + t.montant, 0);
   const nextSal = upcoming(st, 62).find((o) => o.kind === 'in' && (o.cat === 'salaire' || o.cat === 'pension') && o.date >= today);
@@ -744,7 +765,7 @@ function Creances({ st, open, remove, undoRef }) {
             <div className="row" key={c.id}>
               <div className="ic"><HandCoins size={16} /></div>
               <div style={{ minWidth: 0, flex: 1 }}><div className="t">{c.nom}{n > 1 && <span className="badge">{paid.length}/{n} échéances</span>}</div>
-                <div className="s">{ok ? 'Soldé' : n > 1 ? `Prochaine : ${fmt(next.amount)} le ${dLabel(next.date)}` : `Prévu le ${dLabel(c.date)}`}</div>
+                <div className="s">{ok ? 'Soldé' : n > 1 ? `Prochaine : ${fmt(next.amount)} le ${dLabel(next.date)}` : `Prévu le ${dLabel(c.date)}`}{(() => { const t = c.initTx && st.transactions.find((x) => x.id === c.initTx); return t ? ` · ${sens === 'in' ? 'prêté' : 'reçu'} le ${dLabel(t.date)} ${sens === 'in' ? 'depuis' : 'sur'} ${accName(st, t.accountId)}` : ''; })()}</div>
                 {n > 1 && <div className="bar" style={{ height: 5, marginTop: 6, maxWidth: 260 }}><i style={{ width: (paidAmt / c.montant) * 100 + '%', background: sens === 'in' ? 'var(--pos)' : 'var(--neg)' }} /></div>}</div>
               <div className={'a ' + (sens === 'in' ? 'pos' : 'neg')}>{fmt(c.montant)}{n > 1 && <div className="muted" style={{ fontSize: 11.5, fontWeight: 500, textAlign: 'right' }}>reste {fmt(c.montant - paidAmt)}</div>}</div>
               {ok ? <><span className="badge ok">{sens === 'in' ? 'Reçu' : 'Payé'}</span><button className="ib" title="Annuler la dernière échéance" onClick={() => undoRef(paid[paid.length - 1].ref)}><Undo2 size={15} /></button></>
@@ -1097,17 +1118,29 @@ function TontineModal({ t, goals, onClose, onOk }) {
   );
 }
 
-function CreanceModal({ c, onClose, onOk }) {
+function CreanceModal({ c, st, onClose, onOk }) {
   const [x, setX] = useState({ id: uid(), sens: 'in', nom: '', montant: '', date: todayISO(), n: 1, ...(c || {}) });
+  const t0 = x.initTx && st.transactions.find((t) => t.id === x.initTx);
+  const isNew = !c?.id;
+  const [mv, setMv] = useState({ on: isNew || !!t0, accountId: t0?.accountId || st.accounts[0]?.id, date: t0?.date || todayISO() });
   const u = (p) => setX((s) => ({ ...s, ...p }));
+  const lend = x.sens === 'in';
   return (
-    <Modal title={c?.id ? 'Modifier' : x.sens === 'in' ? 'Nouvelle créance' : 'Nouvelle dette'} onClose={onClose} footer={<><button className="btn s" onClick={onClose}>Annuler</button><button className="btn p" disabled={!x.nom || !(+x.montant > 0)} onClick={() => onOk({ ...x, montant: +x.montant, n: Math.max(1, +x.n || 1) })}>Enregistrer</button></>}>
+    <Modal title={c?.id ? 'Modifier' : lend ? 'Nouvelle créance' : 'Nouvelle dette'} onClose={onClose} footer={<><button className="btn s" onClick={onClose}>Annuler</button><button className="btn p" disabled={!x.nom || !(+x.montant > 0)} onClick={() => onOk({ ...x, montant: +x.montant, n: Math.max(1, +x.n || 1) }, mv)}>Enregistrer</button></>}>
       <div className="seg" style={{ display: 'flex', marginBottom: 18 }}>{[['in', 'On me doit'], ['out', 'Je dois']].map(([k, l]) => <button key={k} style={{ flex: 1 }} className={x.sens === k ? 'on' : ''} onClick={() => u({ sens: k })}>{l}</button>)}</div>
       <div className="form f2">
         <Field label="Personne" span><input className="inp" autoFocus value={x.nom} onChange={(e) => u({ nom: e.target.value })} /></Field>
         <Field label="Montant total (FCFA)"><input className="inp num" type="number" value={x.montant} onChange={(e) => u({ montant: e.target.value })} /></Field>
         <Field label="Nombre d'échéances" hint={+x.n > 1 && +x.montant > 0 ? `${fmt(Math.floor(x.montant / x.n))} FCFA par mois` : '1 = en une seule fois'}><input className="inp num" type="number" min={1} max={60} value={x.n} onChange={(e) => u({ n: e.target.value })} /></Field>
-        <Field label={+x.n > 1 ? 'Date de la 1re échéance' : 'Date prévue'} span><input className="inp" type="date" value={x.date} onChange={(e) => u({ date: e.target.value })} /></Field>
+        <Field label={(lend ? 'Remboursement · ' : 'À rembourser · ') + (+x.n > 1 ? '1re échéance' : 'date prévue')} span><input className="inp" type="date" value={x.date} onChange={(e) => u({ date: e.target.value })} /></Field>
+      </div>
+      <div className="debt-move">
+        <label className="switch"><input type="checkbox" checked={mv.on} onChange={(e) => setMv({ ...mv, on: e.target.checked })} />{lend ? "J'ai déjà prêté cet argent (il sort de mon compte)" : "J'ai déjà reçu cet argent (il entre sur mon compte)"}</label>
+        {mv.on && <div className="form f2" style={{ marginTop: 12 }}>
+          <Field label={lend ? 'Prêté depuis' : 'Reçu sur'} span><AccPicker st={st} value={mv.accountId} onChange={(v) => setMv({ ...mv, accountId: v })} /></Field>
+          <Field label={lend ? 'Date du prêt' : "Date de réception"}><input className="inp" type="date" value={mv.date} onChange={(e) => setMv({ ...mv, date: e.target.value })} /></Field>
+        </div>}
+        {!mv.on && <div className="muted" style={{ fontSize: 12.5, marginTop: 8 }}>{t0 ? 'Le mouvement enregistré sera retiré du solde.' : 'Décoche si le prêt date d’avant ton suivi dans Kalis : le solde ne change pas.'}</div>}
       </div>
     </Modal>
   );
