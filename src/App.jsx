@@ -1890,7 +1890,7 @@ function LockScreen({ hash, len, onUnlock }) {
   return (
     <div className="lock">
       <div className={'lock-box' + (err ? ' shake' : '')}>
-        <img src={logoUrl} alt="" width={64} height={64} />
+        <img src={logoUrl} alt="" width={96} height={96} style={{ filter: "drop-shadow(0 14px 24px rgba(79,70,229,.35))" }} />
         <h2>Kalis est verrouillé</h2><div className="muted" style={{ fontSize: 13 }}>{len ? `Saisis ton code à ${len} chiffres` : 'Saisis ton code PIN'}</div>
         <div className="pin-dots">{Array.from({ length: nDots }, (_, i) => <i key={i} className={i < pin.length ? 'on' : ''} />)}</div>
         <div className="pad">{['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', 'del'].map((k, i) => k === '' ? <span key={i} /> : <button key={i} onClick={() => press(k)}>{k === 'del' ? <Delete size={18} /> : k}</button>)}</div>
