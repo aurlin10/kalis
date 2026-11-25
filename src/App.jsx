@@ -15,7 +15,7 @@ import {
 } from 'recharts';
 import logoUrl from '../build/logo.png';
 import {
-  defaultState, balances, projection, pending, upcoming, occurrences, mkey, addMonths, mLabel, dLabel, fmt, fcfa, short, uid,
+  defaultState, balances, projection, pending, upcoming, occurrences, overdue, mkey, addMonths, mLabel, dLabel, fmt, fcfa, short, uid,
   CATS, CATS_IN, CATS_OUT, CATS_VIE, GOAL_COLORS, goalReach, monthDiff, todayISO, isActive, amountOf, spentVie, spentCat,
   migrate, fixCat, budgetTotal, CATS_DEBT, accName, creanceOccs, monthStats, monthPlan, applyScenario, SCEN_TYPES, EVENT_PRESETS, daysIn, isGoalActive, applyCustomCats, amountSuggestions, weeklySummary, weekKey, paidMap, parseSMS, prevMonth, JOURS, habitToday, habitsMonthly, habitLogged, budgetTotal as bTotal, dateIn, envSpent, streakInfo, proIncome, savingsPlan, saveCapacity, checkup,
 } from './data.js';
@@ -33,10 +33,10 @@ export default function App() {
   const [st, setSt] = useState(load);
   applyCustomCats(st.customCats || []);
   const [page, setPage0] = useState('today');
-  const [tabs, setTabs] = useState({ money: 'acc', budget: 'mo', next: 'rec', future: 'goals' });
+  const [tabs, setTabs] = useState({ money: 'acc', budget: 'mo', next: 'cal', future: 'goals' });
   const [drawer, setDrawer] = useState(false);
   const mainRef = React.useRef(null);
-  const OLDP = { dash: ['today'], today: ['today'], bilan: ['budget', 'bilan'], proj: ['future', 'proj'], scen: ['future', 'sim'], goals: ['future', 'goals'], comptes: ['money', 'acc'], budgets: ['budget', 'mo'], cmp: ['budget', 'cmp'], flux: ['next', 'rec'], tont: ['next', 'ton'], cre: ['next', 'cre'], ops: ['money', 'ops'], mv: ['money', 'mv'], set: ['set'], money: ['money'], budget: ['budget'], next: ['next'], future: ['future'] };
+  const OLDP = { dash: ['today'], today: ['today'], bilan: ['budget', 'bilan'], proj: ['future', 'proj'], scen: ['future', 'sim'], goals: ['future', 'goals'], comptes: ['money', 'acc'], budgets: ['budget', 'mo'], cmp: ['budget', 'cmp'], flux: ['next', 'rec'], tont: ['next', 'ton'], cre: ['next', 'cre'], ops: ['money', 'ops'], mv: ['money', 'mv'], set: ['set'], money: ['money'], budget: ['budget'], next: ['next'], agenda: ['next', 'cal'], future: ['future'] };
   const setPage = (k, t) => { if (k === 'check') { setDrawer(true); return; } const [p, tb] = OLDP[k] || [k]; setDrawer(false); setPage0(p); if (tb || t) setTabs((x) => ({ ...x, [p]: tb || t })); mainRef.current?.scrollTo(0, 0); };
   ACC_REG = Object.fromEntries(st.accounts.map((a) => [a.id, a]));
   const [modal, setModal] = useState(null); // {type, data}
@@ -217,14 +217,14 @@ export default function App() {
     ['today', "Aujourd'hui", Sun, now0.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' }).replace(/^./, (x) => x.toUpperCase()), null],
     ['money', 'Argent', Wallet, 'Où est ton argent, ce qui s’est passé', [['acc', 'Comptes'], ['ops', 'Historique'], ['mv', 'Virements']]],
     ['budget', 'Budget', ChartPie, 'Est-ce que tu tiens ton mois', [['mo', 'Ce mois'], ['cmp', 'Comparateur'], ['bilan', 'Bilan mensuel']]],
-    ['next', 'À venir', CalendarDays, 'Ce qui va entrer et sortir', [['rec', 'Récurrents'], ['ton', 'Tontines'], ['cre', 'Prêts & dettes']]],
+    ['next', 'À venir', CalendarDays, 'Ce qui va entrer et sortir', [['cal', 'Agenda'], ['rec', 'Récurrents'], ['ton', 'Tontines'], ['cre', 'Prêts & dettes']]],
     ['future', 'Futur', Sprout, 'Objectifs, projection, simulations', [['goals', 'Objectifs'], ['proj', 'Projection'], ['sim', 'Simulateur']]],
   ];
   const curP = PAGES3.find((x) => x[0] === page) || ['set', 'Paramètres', Settings2, `Kalis ${version || '3'}`, null];
   const TABV = {
     money: { acc: Comptes, ops: Operations, mv: Operations },
     budget: { mo: Budgets, cmp: Compare, bilan: Bilan },
-    next: { rec: Flux, ton: Tontines, cre: Creances },
+    next: { cal: Agenda, rec: Flux, ton: Tontines, cre: Creances },
     future: { goals: Goals, proj: Projection, sim: Scenarios },
   };
   const tb = tabs[page];
@@ -266,8 +266,7 @@ export default function App() {
         <div className={'pg pg-' + page}>
           {page === 'today' && <Today {...ctx} openCheck={openCheck} />}
           {page === 'set' && <Params {...ctx} />}
-          {page === 'next' && <div className="next-grid"><MonthCal st={st} open={open} /><div className="next-r"><Tabs3 list={curP[4]} v={tb} on={(t) => setTabs((x) => ({ ...x, next: t }))} />{TabC && <TabC {...ctx} />}</div></div>}
-          {TabC && page !== 'next' && <><Tabs3 list={curP[4]} v={tb} on={(t) => setTabs((x) => ({ ...x, [page]: t }))} /><TabC key={page + tb} {...ctx} initF={tb === 'mv' ? 'move' : undefined} /></>}
+          {TabC && <><Tabs3 list={curP[4]} v={tb} on={(t) => setTabs((x) => ({ ...x, [page]: t }))} /><TabC key={page + tb} {...ctx} initF={tb === 'mv' ? 'move' : undefined} /></>}
         </div>
         {toast && <div className="toast"><CheckCheck size={16} /><span>{toast.msg}</span>{toast.prev && <button onClick={() => { setSt(toast.prev); setToast(null); }}>Annuler</button>}<button className="x" onClick={() => setToast(null)}><X size={14} /></button></div>}
       </main>
@@ -646,27 +645,57 @@ function Today(ctx) {
   );
 }
 
-// ================= À VENIR : calendrier du mois =================
-function MonthCal({ st, open }) {
-  const [k, setK] = useState(mkey(new Date()));
-  const today = todayISO();
-  const occ = occurrences(st, k).filter((o) => o.date >= (st.dateInitiale || ''));
+// ================= À VENIR : agenda du mois =================
+function Agenda({ st, open }) {
+  const today = todayISO(); const cur = mkey(new Date());
+  const [k, setK] = useState(cur); const [sel, setSel] = useState(null); const [all, setAll] = useState(false);
+  const pm = paidMap(st);
+  const base = occurrences(st, k).filter((o) => o.date >= (st.dateInitiale || '')).map((o) => ({ ...o, done: !!st.done[o.ref], rest: Math.max(0, o.amount - (pm[o.ref] || 0)) }));
+  const late = k === cur ? overdue(st, cur).map((o) => ({ ...o, done: false, rest: o.amount })) : [];
+  const list = [...late, ...base];
+  const todo = list.filter((o) => !o.done && o.rest > 0);
+  const tin = todo.filter((o) => o.kind === 'in').reduce((s, o) => s + o.rest, 0);
+  const tout = todo.filter((o) => o.kind !== 'in').reduce((s, o) => s + o.rest, 0);
   const [y, m] = k.split('-').map(Number);
   const off = (new Date(y, m - 1, 1).getDay() + 6) % 7; const n = daysIn(k);
-  const tin = occ.filter((o) => o.kind === 'in').reduce((s, o) => s + o.amount, 0); const tout = occ.filter((o) => o.kind !== 'in').reduce((s, o) => s + o.amount, 0);
+  const shown = list.filter((o) => (sel ? o.date === sel && !o.late : true) && (all || sel || (!o.done && o.rest > 0)));
+  const groups = []; for (const o of shown) { const g = o.late ? 'late' : o.date; const last = groups[groups.length - 1]; if (last && last[0] === g) last[1].push(o); else groups.push([g, [o]]); }
+  const dayL = (iso) => { const d = new Date(iso + 'T12:00:00'); const s = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' }); return iso === today ? `Aujourd'hui · ${s}` : s.replace(/^./, (x) => x.toUpperCase()); };
   const cells = [];
-  for (let i = 0; i < off; i++) cells.push(<div key={'x' + i} className="cd x" />);
+  for (let i = 0; i < off; i++) cells.push(<span key={'x' + i} className="ag-d x" />);
   for (let d = 1; d <= n; d++) {
-    const iso = `${k}-${String(d).padStart(2, '0')}`; const os = occ.filter((o) => o.date === iso);
-    cells.push(<div key={iso} className={'cd' + (iso === today ? ' td' : '') + (os.length ? ' has' : '')}><span className="cn">{d}</span>{os.map((o) => { const done = !!st.done[o.ref]; return <button key={o.ref} className={'ce ' + (o.kind === 'in' ? 'in' : 'out') + (done ? ' done' : '')} title={`${o.label} · ${fmt(o.amount)} FCFA${done ? ' · fait' : ' · cliquer pour valider'}`} onClick={() => !done && open('confirm', { ...o, late: o.date < today })}>{o.kind === 'in' ? '+' : '−'}{short(o.amount)} {o.label}</button>; })}</div>);
+    const iso = `${k}-${String(d).padStart(2, '0')}`; const os = base.filter((o) => o.date === iso);
+    const open0 = os.filter((o) => !o.done && o.rest > 0); const net = open0.reduce((s, o) => s + (o.kind === 'in' ? o.rest : -o.rest), 0);
+    cells.push(<button key={iso} className={'ag-d' + (iso === today ? ' td' : '') + (sel === iso ? ' on' : '') + (os.length ? ' has' : '') + (os.length && !open0.length ? ' done' : '')} onClick={() => setSel(sel === iso ? null : iso)} title={os.map((o) => `${o.label} · ${fmt(o.amount)}`).join('\n')}>
+      <b>{d}</b>{os.length > 0 && <span className="ag-dots">{os.slice(0, 3).map((o) => <i key={o.ref} className={(o.kind === 'in' ? 'in' : 'out') + (o.done ? ' ok' : '')} />)}</span>}{open0.length > 0 && <em className={net >= 0 ? 'pos' : ''}>{net >= 0 ? '+' : '−'}{short(Math.abs(net))}</em>}
+    </button>);
   }
   return (
-    <div className="card cal3">
-      <div className="c3-h"><div className="mnav"><button className="ib" onClick={() => setK(addMonths(k, -1))} title="Mois précédent"><ChevronLeft size={16} /></button><h3>{mLabel(k, true)}</h3><button className="ib" onClick={() => setK(addMonths(k, 1))} title="Mois suivant"><ChevronRight size={16} /></button></div><span className="muted num"><span className="pos">+{fmt(tin)}</span> · −{fmt(tout)} prévus</span></div>
-      <div className="c3-b">
-        <div className="calg">{['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'].map((x) => <div key={x} className="ch">{x}</div>)}{cells}</div>
-        <div className="cal-list">{occ.map((o) => <div className={'r3' + (st.done[o.ref] ? ' done' : '')} key={o.ref}><CatTile c={o.cat} label={o.label} kind={o.kind} sm /><span className="r3-t"><b>{o.label}</b><span>{+o.date.slice(8)} {MOIS3[+o.date.slice(5, 7) - 1]}.{st.done[o.ref] ? ' · fait' : ''}</span></span><span className={'r3-a num ' + tone(o.kind)}>{sign(o.kind)}{fmt(o.amount)}</span></div>)}{!occ.length && <div className="muted" style={{ padding: 12 }}>Rien de prévu ce mois-ci.</div>}</div>
-        <div className="legend3"><span><i className="in" />Entrée</span><span><i className="out" />Sortie</span><span><i className="done" />Déjà validé</span></div>
+    <div className="agenda">
+      <div className="card ag-cal">
+        <div className="ag-nav"><button className="ib" onClick={() => { setK(addMonths(k, -1)); setSel(null); }} title="Mois précédent"><ChevronLeft size={16} /></button><h3>{mLabel(k, true)}</h3><button className="ib" onClick={() => { setK(addMonths(k, 1)); setSel(null); }} title="Mois suivant"><ChevronRight size={16} /></button></div>
+        <div className="ag-sum">
+          <div><span>Entrées à venir</span><b className="num pos">+{fmt(tin)}</b></div>
+          <div><span>Sorties à venir</span><b className="num">{tout ? `−${fmt(tout)}` : "0"}</b></div>
+          <div><span>Solde</span><b className={'num ' + (tin - tout < 0 ? 'neg' : '')}>{tin - tout >= 0 ? '+' : '−'}{fmt(Math.abs(tin - tout))}</b></div>
+        </div>
+        <div className="ag-grid">{['L', 'M', 'M', 'J', 'V', 'S', 'D'].map((x, i) => <span key={i} className="ag-h">{x}</span>)}{cells}</div>
+        <div className="legend3"><span><i className="in" />Entrée</span><span><i className="out" />Sortie</span><span><i className="done" />Fait</span></div>
+      </div>
+      <div className="card ag-list">
+        <div className="c3-h"><h3>{sel ? dayL(sel) : k === cur ? 'Ce qui reste à passer ce mois-ci' : `Prévu en ${mLabel(k, true)}`}</h3>
+          {sel ? <button className="link" onClick={() => setSel(null)}>Voir tout le mois</button> : <div className="seg sm"><button className={!all ? 'on' : ''} onClick={() => setAll(false)}>À faire</button><button className={all ? 'on' : ''} onClick={() => setAll(true)}>Tout</button></div>}</div>
+        <div className="c3-b">{groups.length ? groups.map(([g, os]) => (
+          <div key={g} className="ag-g">
+            <div className="ag-gh"><span className={g === 'late' ? 'warn' : ''}>{g === 'late' ? 'En retard' : dayL(g)}</span><span className="num">{(() => { const t = os.reduce((s, o) => s + (o.done ? 0 : o.kind === 'in' ? o.rest : -o.rest), 0); return t ? `${t > 0 ? '+' : '−'}${fmt(Math.abs(t))}` : ''; })()}</span></div>
+            {os.map((o) => (
+              <div className={'r3' + (o.done ? ' done' : '')} key={o.ref}>
+                <CatTile c={o.cat} label={o.label} kind={o.kind} />
+                <span className="r3-t"><b>{o.label}</b><span>{CATS[o.cat] || ''}{o.late ? ` · prévu le ${+o.date.slice(8)} ${MOIS3[+o.date.slice(5, 7) - 1]}.` : ''}{o.rest < o.amount && !o.done ? ` · reste ${fmt(o.rest)}` : ''}{o.variable ? ` · ${short(o.min)}–${short(o.max)}` : ''}</span></span>
+                <span className={'r3-a num ' + tone(o.kind)}>{sign(o.kind)}{fmt(o.done ? o.amount : o.rest)}</span>
+                {o.done ? <span className="pill ok sm"><Check size={12} />Fait</span> : <button className="chk3" title="Valider" onClick={() => open('confirm', { ...o, amount: o.rest, late: o.late || o.date < today })}><Check size={14} /></button>}
+              </div>))}
+          </div>)) : <Empty icon={CheckCheck} title={sel ? 'Rien ce jour-là' : 'Tout est passé'} text={sel ? 'Aucun flux, tontine ou remboursement prévu.' : 'Plus rien à valider ce mois-ci.'} />}</div>
       </div>
     </div>
   );
@@ -1759,9 +1788,9 @@ function Budgets({ st, set, open, updateTx }) {
 
         <div className="env-sec">
           <div className="env-sec-h"><div><h3>Enveloppes</h3><span>Des réserves pour tes événements, à part des budgets du mois</span></div>
-            <div style={{ display: 'flex', gap: 8 }}><button className="btn s sm" onClick={() => open('afford')}><Calculator size={14} />Puis-je me le permettre ?</button><button className="btn p sm" onClick={() => open('envelope')}><Plus size={14} />Nouvelle enveloppe</button></div></div>
-          {(st.envelopes || []).length ? <div className="env-grid">{[...(st.envelopes || [])].sort((x, y) => y.mois.localeCompare(x.mois)).map((e) => <EnvelopeCard key={e.id} e={e} st={st} open={open} />)}</div>
-            : <div className="env-empty"><Gift size={18} />Crée une enveloppe « Fêtes de fin d'année » pour tes 300 000 de décembre : ses dépenses ne feront pas exploser tes budgets.</div>}
+            <div style={{ display: 'flex', gap: 8 }}><button className="btn s sm" onClick={() => open('afford')}><Calculator size={14} />Puis-je me le permettre ?</button></div></div>
+          {(st.envelopes || []).length ? <div className="env-grid">{[...(st.envelopes || [])].sort((x, y) => y.mois.localeCompare(x.mois)).map((e) => <EnvelopeCard key={e.id} e={e} st={st} open={open} />)}<button className="envc-new" onClick={() => open('envelope')}><span className="ctile" style={{ '--c': '#5B21D6' }}><Plus size={17} /></span><b>Nouvelle enveloppe</b><span>Fête, voyage, cadeau, rentrée…</span></button></div>
+            : <div className="env-empty"><Gift size={18} /><span style={{ flex: 1 }}>Une enveloppe met de côté l'argent d'un événement (fête, voyage, cadeau) : ses dépenses ne touchent pas tes budgets du mois.</span><button className="btn p sm" onClick={() => open('envelope')}><Plus size={14} />Créer une enveloppe</button></div>}
         </div>
         {offBudget.length > 0 && (
           <div className="alert warn mt" style={{ marginBottom: 0 }}>
@@ -1787,7 +1816,7 @@ function Budgets({ st, set, open, updateTx }) {
             return (
               <div className={'row budget-row' + (off ? ' off-budget' : '')} key={c}>
                 <button className="bud-name" onClick={() => setDetail(c)} title="Voir les opérations">
-                  <span className="bud-ic">{React.createElement(catIcon(c), { size: 15 })}</span>
+                  <CatTile c={c} />
                   <span><b>{CATS[c]}</b><span className="muted">{nTx} opération{nTx > 1 ? 's' : ''}</span></span>
                 </button>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -2632,14 +2661,20 @@ function EnvelopeModal({ e, st, onClose, onOk, onDelete }) {
   );
 }
 const EnvelopeCard = ({ e, st, open, compact }) => {
-  const sp = envSpent(st, e.id); const p = +e.montant ? sp / e.montant : 0; const reste = e.montant - sp; const a = st.accounts.find((x) => x.id === e.accountId) || {};
+  const sp = envSpent(st, e.id); const p = +e.montant ? sp / e.montant : 0; const reste = e.montant - sp; const a = st.accounts.find((x) => x.id === e.accountId);
+  const cur = mkey(new Date()); const now = new Date();
+  const when = e.mois > cur ? (() => { const d = Math.ceil((new Date(e.mois + '-01T00:00:00') - now) / 864e5); return d <= 31 ? `dans ${d} jour${d > 1 ? 's' : ''}` : `dans ${monthDiff(cur, e.mois)} mois`; })() : e.mois === cur ? `${daysIn(cur) - now.getDate() + 1} jours restants` : 'terminée';
   return (
-    <div className={'env-card' + (p > 1 ? ' over' : '') + (compact ? ' compact' : '')}>
-      <div className="env-h"><span className="env-ic"><Gift size={16} /></span><div style={{ flex: 1, minWidth: 0 }}><b>{e.nom}</b><span>{mLabel(e.mois, true)} · <i style={{ background: a.couleur }} />{a.nom}</span></div>
-        {!compact && <button className="ib" title="Modifier" onClick={() => open('envelope', e)}><Pencil size={14} /></button>}</div>
-      <div className="env-v"><b className={'num ' + (reste < 0 ? 'neg' : '')}>{reste < 0 ? '−' : ''}{fmt(Math.abs(reste))}</b><span>{reste < 0 ? 'de dépassement' : `restants sur ${fmt(e.montant)}`}</span></div>
-      <div className="env-bar"><i style={{ width: Math.min(100, p * 100) + '%' }} /></div>
-      <button className="btn s sm env-add" onClick={() => open('tx', { kind: 'out', envelopeId: e.id, accountId: e.accountId, cat: 'shopping', label: '' })}><Plus size={13} />Dépense de l'enveloppe</button>
+    <div className={'envc' + (p > 1 ? ' over' : '') + (e.mois < cur ? ' past' : '') + (compact ? ' compact' : '')}>
+      <div className="envc-h">
+        <span className="ctile" style={{ '--c': '#B7791F' }}><Gift size={17} strokeWidth={1.8} /></span>
+        <div className="envc-t"><b>{e.nom}</b><span><CalendarDays size={12} />{mLabel(e.mois, true)} · {when}</span></div>
+        {!compact && <button className="ib" title="Modifier l'enveloppe" onClick={() => open('envelope', e)}><Pencil size={15} /></button>}
+      </div>
+      <div className="envc-v"><b className={'num' + (reste < 0 ? ' neg' : '')}>{reste < 0 ? '−' : ''}{fmt(Math.abs(reste))}</b><span>{reste < 0 ? 'de dépassement' : 'FCFA restants'}</span></div>
+      <div className="envc-bar" title={`${Math.round(p * 100)} % utilisés`}><i style={{ width: Math.min(100, p * 100) + '%' }} /></div>
+      <div className="envc-m"><span className="num">{fmt(sp)} dépensés sur {fmt(e.montant)}</span>{a && <span className="envc-acc"><AccBadge a={a} sm />{a.nom}</span>}</div>
+      {!compact && e.mois >= cur && <button className="btn s sm envc-add" onClick={() => open('tx', { kind: 'out', envelopeId: e.id, accountId: e.accountId, cat: 'shopping', label: '' })}><Plus size={14} />Noter une dépense</button>}
     </div>);
 };
 
