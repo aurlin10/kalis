@@ -1,10 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  LayoutGrid, LineChart as LineIc, Target, Repeat, Users, HandCoins, List, Settings, Plus, Check, Pencil, Trash2, X,
-  ArrowDownLeft, ArrowUpRight, PiggyBank, Sun, Moon, Monitor, AlertTriangle, Info, Download, Upload, RotateCcw, Undo2, Wallet, CalendarDays,
-  ArrowLeftRight, BarChart3, FlaskConical, Lock, Bell, Star, FileSpreadsheet, FileText, FolderOpen, RefreshCw, Gauge, PartyPopper, KeyRound, ShieldCheck, Smartphone, Keyboard, Power, Delete, Sparkles, Search, Trophy, Archive, History, CheckCheck, Clock, Banknote, ArchiveRestore, Zap, Tag, CalendarRange, UtensilsCrossed, Bus, HeartPulse, ShoppingBag, Ticket, CornerDownLeft, ChevronDown,
-  MessageCircle, Scale, ClipboardPaste, ListChecks, Copy, Send, Command, FileBarChart, PanelLeftClose, PanelLeftOpen, Palette, Database, Flame, Stethoscope, Briefcase, Gift, Calculator, BadgeCheck, EyeOff, Wand2,
+  LayoutGrid, LineChart as LineIc, Target, Repeat, Users, HandCoins, List, Settings, Plus, Check, Pencil, Trash2, X, ArrowDownLeft, ArrowUpRight, PiggyBank, Sun, Moon,
+  Monitor, AlertTriangle, Info, Download, Upload, RotateCcw, Undo2, Wallet, CalendarDays, ArrowLeftRight, BarChart3, FlaskConical, Lock, Bell, Star, FileSpreadsheet,
+  FileText, FolderOpen, RefreshCw, Gauge, PartyPopper, KeyRound, ShieldCheck, Smartphone, Keyboard, Power, Delete, Sparkles, Search, Trophy, Archive, History,
+  CheckCheck, Clock, Banknote, ArchiveRestore, Zap, Tag, CalendarRange, UtensilsCrossed, Bus, HeartPulse, ShoppingBag, Ticket, CornerDownLeft, ChevronDown, Utensils,
+  HeartHandshake, ShoppingBasket, House, ReceiptText, BriefcaseBusiness, Landmark, Laptop, UsersRound, CircleEllipsis, Percent, Sprout, ChartPie, Settings2,
+  TrendingDown, TrendingUp, Wifi, Music, Droplet, Car, Store, SlidersHorizontal, HardDrive, Cloud, Coffee, Soup, TriangleAlert, CircleAlert, Lightbulb, CalendarPlus,
+  WalletCards, MessageSquareText, ChevronLeft, ChevronRight, MessageCircle, Scale, ClipboardPaste, ListChecks, Copy, Send, Command, FileBarChart, PanelLeftClose,
+  PanelLeftOpen, Palette, Database, Flame, Stethoscope, Briefcase, Gift, Calculator, BadgeCheck, EyeOff, Wand2,
 } from 'lucide-react';
 import {
   AreaChart, Area, LineChart, Line, BarChart, Bar, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine,
@@ -28,7 +32,13 @@ const KindIc = ({ k }) => { const I = k === 'in' || k === 'withdraw' ? ArrowDown
 export default function App() {
   const [st, setSt] = useState(load);
   applyCustomCats(st.customCats || []);
-  const [page, setPage] = useState('dash');
+  const [page, setPage0] = useState('today');
+  const [tabs, setTabs] = useState({ money: 'acc', budget: 'mo', next: 'rec', future: 'goals' });
+  const [drawer, setDrawer] = useState(false);
+  const mainRef = React.useRef(null);
+  const OLDP = { dash: ['today'], today: ['today'], bilan: ['budget', 'bilan'], proj: ['future', 'proj'], scen: ['future', 'sim'], goals: ['future', 'goals'], comptes: ['money', 'acc'], budgets: ['budget', 'mo'], cmp: ['budget', 'cmp'], flux: ['next', 'rec'], tont: ['next', 'ton'], cre: ['next', 'cre'], ops: ['money', 'ops'], mv: ['money', 'mv'], set: ['set'], money: ['money'], budget: ['budget'], next: ['next'], future: ['future'] };
+  const setPage = (k, t) => { if (k === 'check') { setDrawer(true); return; } const [p, tb] = OLDP[k] || [k]; setDrawer(false); setPage0(p); if (tb || t) setTabs((x) => ({ ...x, [p]: tb || t })); mainRef.current?.scrollTo(0, 0); };
+  ACC_REG = Object.fromEntries(st.accounts.map((a) => [a.id, a]));
   const [modal, setModal] = useState(null); // {type, data}
   const [locked, setLocked] = useState(() => !!load().settings?.pinHash);
   const [version, setVersion] = useState(null);
@@ -88,10 +98,11 @@ export default function App() {
     const h = (e) => {
       if (locked) return;
       if (e.key === 'F1') { e.preventDefault(); open('keys'); return; }
+      if (e.key === 'Escape' && drawer && !modal) { setDrawer(false); return; }
       if (!e.ctrlKey) return;
       const k = e.key.toLowerCase();
-      const PG = ['dash', 'bilan', 'proj', 'scen', 'goals', 'comptes', 'budgets', 'flux', 'tont', 'cre'];
-      if (/^[0-9]$/.test(k) && !e.shiftKey) { e.preventDefault(); setModal(null); setPage(k === '0' ? 'ops' : PG[+k - 1]); return; }
+      const PG = ['today', 'money', 'budget', 'next', 'future', 'set'];
+      if (/^[1-6]$/.test(k) && !e.shiftKey) { e.preventDefault(); setModal(null); setPage(PG[+k - 1]); return; }
       if (k === 'n') { e.preventDefault(); open('tx'); }
       else if (k === 'j') { e.preventDefault(); open('adjust'); }
       else if (k === 'p') { e.preventDefault(); open('afford'); }
@@ -111,7 +122,7 @@ export default function App() {
     };
     window.addEventListener('paste', pst);
     return () => { window.removeEventListener('keydown', h); window.removeEventListener('paste', pst); };
-  }, [locked, st.settings.pinHash, modal, st.accounts]);
+  }, [locked, st.settings.pinHash, modal, st.accounts, drawer]);
 
   // Version + mise à jour automatique
   const checkUpdate = async () => { if (!native) return { status: 'error', message: 'Indisponible hors de l\'application' }; const r = await native.checkUpdate(); if (r.status === 'ready') setUpdate(r); return r; };
@@ -192,7 +203,6 @@ export default function App() {
   const ctx = { st, set, bal, rows, upsert, remove, addTx, delTx, updateTx, setDone, undoRef, open, setPage, setSettings, setToast, sendWeekly, exportPDF, doExcel, makeReport, focusSearch, version, update, checkUpdate, lastBackup, lock: () => setLocked(true) };
 
   const collapsed = !!st.settings.sideCollapsed;
-  const msSide = monthStats(st, mkey(new Date()));
   const badges = useMemo(() => {
     const t = todayISO(); const cur = mkey(new Date());
     const due = upcoming(st).filter((o) => o.date <= t).length;
@@ -200,50 +210,72 @@ export default function App() {
     const late = st.creances.flatMap((c) => creanceOccs(c)).filter((o) => !st.done[o.ref] && o.date < t).length;
     const neg = st.accounts.filter((a) => (bal.accounts[a.id] || 0) < 0).length;
     const ck = checkup(st, bal).filter((x) => x.sev >= 2).length;
-    return { check: ck ? [ck, 'warn'] : null, dash: due ? [due, 'warn'] : null, budgets: over ? [over, 'r'] : null, cre: late ? [late, 'warn'] : null, comptes: neg ? [neg, 'r'] : null };
+    return { ck, today: due ? [due, 'warn'] : null, budget: over ? [over, 'r'] : null, next: late ? [late, 'warn'] : null, money: neg ? [neg, 'r'] : null };
   }, [st, bal]);
-  const NAV = [
-    ['Pilotage', [['dash', "Vue d'ensemble", LayoutGrid], ['check', 'Check-up', Stethoscope], ['bilan', 'Bilan mensuel', BarChart3], ['proj', 'Projection', LineIc], ['scen', 'Scénarios', FlaskConical], ['goals', 'Objectifs', Target]]],
-    ['Données', [['comptes', 'Comptes', Smartphone], ['budgets', 'Budgets', Gauge], ['flux', 'Flux récurrents', Repeat], ['tont', 'Tontines', Users], ['cre', 'Créances & dettes', HandCoins], ['ops', 'Opérations', List]]],
+  const now0 = new Date();
+  const PAGES3 = [
+    ['today', "Aujourd'hui", Sun, now0.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' }).replace(/^./, (x) => x.toUpperCase()), null],
+    ['money', 'Argent', Wallet, 'Où est ton argent, ce qui s’est passé', [['acc', 'Comptes'], ['ops', 'Historique'], ['mv', 'Virements']]],
+    ['budget', 'Budget', ChartPie, 'Est-ce que tu tiens ton mois', [['mo', 'Ce mois'], ['cmp', 'Comparateur'], ['bilan', 'Bilan mensuel']]],
+    ['next', 'À venir', CalendarDays, 'Ce qui va entrer et sortir', [['rec', 'Récurrents'], ['ton', 'Tontines'], ['cre', 'Prêts & dettes']]],
+    ['future', 'Futur', Sprout, 'Objectifs, projection, simulations', [['goals', 'Objectifs'], ['proj', 'Projection'], ['sim', 'Simulateur']]],
   ];
-  const PAGES = { dash: Dashboard, check: CheckUp, bilan: Bilan, proj: Projection, scen: Scenarios, goals: Goals, comptes: Comptes, budgets: Budgets, flux: Flux, tont: Tontines, cre: Creances, ops: Operations, set: Params };
-  const Page = PAGES[page];
+  const curP = PAGES3.find((x) => x[0] === page) || ['set', 'Paramètres', Settings2, `Kalis ${version || '3'}`, null];
+  const TABV = {
+    money: { acc: Comptes, ops: Operations, mv: Operations },
+    budget: { mo: Budgets, cmp: Compare, bilan: Bilan },
+    next: { rec: Flux, ton: Tontines, cre: Creances },
+    future: { goals: Goals, proj: Projection, sim: Scenarios },
+  };
+  const tb = tabs[page];
+  const TabC = TABV[page]?.[tb];
+  const openCheck = () => setDrawer(true);
+  const searchOps = () => { setModal(null); setPage('ops'); setFocusSearch((x) => x + 1); };
 
   if (locked && st.settings.pinHash) return <ThemeCtx.Provider value={PAL[eff]}><LockScreen hash={st.settings.pinHash} len={+st.settings.pinLen || 0} onUnlock={(l) => { if (!st.settings.pinLen && l) setSettings({ pinLen: l }); setLocked(false); }} /></ThemeCtx.Provider>;
 
   return (
     <ThemeCtx.Provider value={PAL[eff]}>
-    <div className={'app' + (collapsed ? ' collapsed' : '')}>
-      <aside className="side">
-        <div className="brand"><img className="brand-logo" src={logoUrl} alt="" /><div className="brand-name">Kalis<span className="brand-v">v2</span></div>
-          <button className="ib side-tog" title={collapsed ? 'Déplier le menu' : 'Replier le menu'} onClick={() => setSettings({ sideCollapsed: !collapsed })}>{collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}</button></div>
-        <button className="side-search" title="Rechercher (Ctrl+K)" onClick={() => { setModal(null); setPage('ops'); setFocusSearch((x) => x + 1); }}><Search size={15} /><span className="nl">Rechercher…</span><kbd className="nl">Ctrl K</kbd></button>
-        {NAV.map(([sec, items]) => (
-          <React.Fragment key={sec || 'x'}>
-            {sec ? <div className="nav-sec">{sec}</div> : <div className="nav-gap" />}
-            {items.map(([k, l, I]) => <button key={k} title={l} className={'nav' + (page === k ? ' on' : '')} onClick={() => setPage(k)}><I size={17} strokeWidth={1.8} /><span className="nl">{l}</span>{badges[k] ? <span className={'nav-badge ' + (badges[k][1] || '')}>{badges[k][0]}</span> : null}</button>)}
-          </React.Fragment>
-        ))}
-        <div className="side-foot">
-          <div className="sf-top"><span className="k">Patrimoine</span><span className={'sf-d ' + (msSide.solde >= 0 ? 'pos' : 'neg')}>{msSide.solde >= 0 ? '+' : '−'}{short(Math.abs(msSide.solde))} ce mois</span></div>
-          <div className="v num">{fcfa(bal.total)}</div>
-          <div className="sf-accs">{st.accounts.filter((x) => (bal.accounts[x.id] || 0) > 0).map((x) => <i key={x.id} title={`${x.nom} · ${fmt(bal.accounts[x.id])}`} style={{ flex: bal.accounts[x.id] || 0, background: x.couleur }} />)}</div>
-        </div>
-        <div className="side-user">
+    <div className={'app v3' + (collapsed ? ' collapsed' : '')}>
+      <aside className="side3">
+        <div className="brand3"><img src={logoUrl} alt="" /><b className="nl">Kalis</b>
+          <button className="ib side-tog nl" title="Replier le menu" onClick={() => setSettings({ sideCollapsed: true })}><PanelLeftClose size={16} /></button></div>
+        {collapsed && <button className="nav3" title="Déplier le menu" onClick={() => setSettings({ sideCollapsed: false })}><PanelLeftOpen size={19} strokeWidth={1.75} /></button>}
+        {PAGES3.map(([k, l, I], i) => <button key={k} title={`${l} (Ctrl+${i + 1})`} className={'nav3' + (page === k ? ' on' : '')} onClick={() => setPage(k)}><I size={19} strokeWidth={1.75} /><span className="nl">{l}</span>{badges[k] ? <span className={'nb ' + badges[k][1]}>{badges[k][0]}</span> : null}</button>)}
+        <div className="side-sp" />
+        <button className={'nav3' + (page === 'set' ? ' on' : '')} title="Paramètres (Ctrl+6)" onClick={() => setPage('set')}><Settings2 size={19} strokeWidth={1.75} /><span className="nl">Paramètres</span></button>
+        <div className="me3">
           <div className="avatar">PM</div>
-          <div className="su-t nl"><b>Paul Aurlin</b><span>Kalis {version || '2.0'}</span></div>
-          <div className="su-act">
-            <button className="ib" title={`Thème : ${mode === 'light' ? 'clair' : mode === 'dark' ? 'sombre' : 'automatique'} (changer)`} onClick={() => set({ theme: mode === 'light' ? 'dark' : mode === 'dark' ? 'system' : 'light' })}>{mode === 'light' ? <Sun size={15} /> : mode === 'dark' ? <Moon size={15} /> : <Monitor size={15} />}</button>
+          <div className="me3-t nl"><b>Paul Aurlin</b><span>Kalis {version || '3.0'}</span></div>
+          <div className="me3-a nl">
+            <button className="ib" title={`Thème : ${mode === 'light' ? 'clair' : mode === 'dark' ? 'sombre' : 'automatique'}`} onClick={() => set({ theme: mode === 'light' ? 'dark' : mode === 'dark' ? 'system' : 'light' })}>{mode === 'light' ? <Sun size={15} /> : mode === 'dark' ? <Moon size={15} /> : <Monitor size={15} />}</button>
             {st.settings.pinHash && <button className="ib" title="Verrouiller (Ctrl+L)" onClick={() => setLocked(true)}><Lock size={15} /></button>}
-            <button className={'ib' + (page === 'set' ? ' on' : '')} title="Paramètres" onClick={() => setPage('set')}><Settings size={15} /></button>
           </div>
         </div>
       </aside>
-      <main className="main">
+      <main className="main" ref={mainRef}>
+        <header className="bar3"><div className="bar-in">
+          <div className="bar-t"><h1>{curP[1]}</h1><div className="sub">{curP[3]}</div></div>
+          <div className="bar-sp" />
+          <button className="bar-search" onClick={searchOps} title="Rechercher (Ctrl+K)"><Search size={15} /><span>Rechercher une opération…</span><kbd>Ctrl K</kbd></button>
+          <button className={'ib3 only-sm' + (page === 'set' ? ' on' : '')} title="Paramètres" onClick={() => setPage('set')}><Settings2 size={18} /></button>
+          <button className="ib3" title="Check-up" onClick={openCheck}><Bell size={18} />{badges.ck > 0 && <span className="dot">{badges.ck}</span>}</button>
+          <AddMenu open={open} />
+        </div></header>
         {update && <div className="update-bar"><Sparkles size={16} /><span>Kalis <b>{update.version}</b> est prête à être installée.</span><button className="btn p sm" onClick={() => native.relaunch()}><RefreshCw size={13} />Redémarrer maintenant</button><button className="ib" onClick={() => setUpdate(null)}><X size={15} /></button></div>}
-        <Page {...ctx} />
+        <div className={'pg pg-' + page}>
+          {page === 'today' && <Today {...ctx} openCheck={openCheck} />}
+          {page === 'set' && <Params {...ctx} />}
+          {page === 'next' && <div className="next-grid"><MonthCal st={st} open={open} /><div className="next-r"><Tabs3 list={curP[4]} v={tb} on={(t) => setTabs((x) => ({ ...x, next: t }))} />{TabC && <TabC {...ctx} />}</div></div>}
+          {TabC && page !== 'next' && <><Tabs3 list={curP[4]} v={tb} on={(t) => setTabs((x) => ({ ...x, [page]: t }))} /><TabC key={page + tb} {...ctx} initF={tb === 'mv' ? 'move' : undefined} /></>}
+        </div>
         {toast && <div className="toast"><CheckCheck size={16} /><span>{toast.msg}</span>{toast.prev && <button onClick={() => { setSt(toast.prev); setToast(null); }}>Annuler</button>}<button className="x" onClick={() => setToast(null)}><X size={14} /></button></div>}
       </main>
+      <nav className="bnav">{PAGES3.map(([k, l, I]) => <button key={k} className={page === k ? 'on' : ''} onClick={() => setPage(k)}><I size={20} strokeWidth={1.75} /><span>{l}</span>{badges[k] ? <i className="bn-dot" /> : null}</button>)}</nav>
+      {drawer && <div className="drawer3" onMouseDown={(e) => e.target === e.currentTarget && setDrawer(false)}><div className="drawer3-p">
+        <div className="drawer3-h"><h2>Check-up</h2><button className="ib" title="Fermer (Échap)" onClick={() => setDrawer(false)}><X size={17} /></button></div>
+        <CheckUp {...ctx} />
+      </div></div>}
 
       {modal?.type === 'confirm' && <ConfirmModal occ={modal.data} st={st} onClose={close} onOk={(m, d, skip, accountId, opt = {}) => {
         const o = modal.data;
@@ -333,22 +365,25 @@ function Sel({ value, onChange, children, className = '', style, disabled, title
   return (
     <>
       <button type="button" ref={ref} className={'sel ' + className + (open ? ' open' : '')} style={style} disabled={disabled} title={title} aria-haspopup="listbox" aria-expanded={open} onClick={() => (open ? setOpen(false) : openIt())} onKeyDown={key}>
-        <span className="sel-v">{cur?.label ?? ''}</span><ChevronDown size={14} className="sel-chev" />
+        {cur && <SelLead v={cur.value} />}<span className="sel-v">{cur?.label ?? ''}</span><ChevronDown size={14} className="sel-chev" />
       </button>
       {open && pos && createPortal(
         <div className="sel-pop" ref={listRef} role="listbox" style={{ left: pos.left, top: pos.top, minWidth: pos.width, maxHeight: pos.maxHeight }}>
           {opts.map((o, i) => (
             <div key={o.value + i} role="option" aria-selected={i === curI} className={'sel-o' + (i === hi ? ' hi' : '') + (i === curI ? ' on' : '') + (o.disabled ? ' dis' : '')} onMouseEnter={() => setHi(i)} onMouseDown={(e) => e.preventDefault()} onClick={() => pick(o)}>
-              <span>{o.label}</span>{i === curI && <Check size={14} />}
+              <SelLead v={o.value} /><span>{o.label}</span>{i === curI && <Check size={14} />}
             </div>))}
         </div>, document.body)}
     </>
   );
 }
 
-const Top = ({ title, sub, children }) => (
-  <div className="top"><div><h1>{title}</h1>{sub && <div className="sub">{sub}</div>}</div><div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>{children}<div className="avatar">PM</div></div></div>
-);
+// v3 : le titre de page est dans la barre du haut ; ici ne restent que la phrase d'aide et les actions de l'onglet
+const Top = ({ sub, children }) => {
+  const has = React.Children.toArray(children).some(Boolean);
+  if (!has && !sub) return null;
+  return <div className="tools">{sub ? <span className="tools-sub">{sub}</span> : <span />}{has && <div className="tools-a">{children}</div>}</div>;
+};
 const Card = ({ title, sub, action, children, flush, style, className }) => (
   <div className={'card ' + (className || '')} style={style}>
     {title && <div className="card-h"><div><h3>{title}</h3>{sub && <div className="sub">{sub}</div>}</div>{action}</div>}
@@ -461,26 +496,193 @@ const addD = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); retu
 const monday = (d) => { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; };
 const PER_L = { j: ["Aujourd'hui", 'hier', 'par jour'], s: ['Cette semaine', 'la semaine dernière à date', 'par semaine'], m: ['Ce mois', 'le mois dernier à date', 'par mois'] };
 
-function Dashboard({ st, bal, rows, open, setPage, addTx, setSettings, setToast, upsert }) {
+// ================= V3 : composants de la nouvelle structure =================
+const Tabs3 = ({ list, v, on }) => (
+  <div className="tabs3" role="tablist">{(list || []).map(([k, l]) => <button key={k} role="tab" aria-selected={v === k} className={v === k ? 'on' : ''} onClick={() => on(k)}>{l}</button>)}</div>
+);
+
+// Bouton « + Dépense » avec menu des autres saisies
+function AddMenu({ open }) {
+  const [o, setO] = useState(false); const ref = React.useRef(null);
+  useEffect(() => { if (!o) return; const h = (e) => { if (!ref.current?.contains(e.target)) setO(false); }; const k = (e) => e.key === 'Escape' && setO(false); window.addEventListener('mousedown', h); window.addEventListener('keydown', k); return () => { window.removeEventListener('mousedown', h); window.removeEventListener('keydown', k); }; }, [o]);
+  const L = [[Plus, 'Dépense', 'Ctrl N', () => open('tx')], [ArrowDownLeft, 'Entrée d’argent', '', () => open('tx', { kind: 'in' })], [ArrowLeftRight, 'Virement', 'Ctrl B', () => open('tx', { kind: 'move' })], [MessageSquareText, 'Coller un SMS', 'Ctrl M', () => open('sms', '')], [Scale, 'Ajuster les soldes', 'Ctrl J', () => open('adjust')], [Calculator, 'Puis-je me le permettre ?', 'Ctrl P', () => open('afford')]];
+  return (
+    <div className="addm" ref={ref}>
+      <button className="btn p addm-main" onClick={() => open('tx')} title="Nouvelle dépense (Ctrl+N)"><Plus size={16} /><span>Dépense</span></button>
+      <button className={'btn p addm-more' + (o ? ' on' : '')} onClick={() => setO(!o)} title="Autres saisies" aria-haspopup="menu" aria-expanded={o}><ChevronDown size={15} /></button>
+      {o && <div className="addm-pop" role="menu">{L.map(([I, l, k, fn]) => <button key={l} role="menuitem" onClick={() => { setO(false); fn(); }}><I size={16} strokeWidth={1.8} /><span>{l}</span>{k && <kbd>{k}</kbd>}</button>)}</div>}
+    </div>
+  );
+}
+
+// Actions du check-up, partagées entre le tiroir et la page Aujourd'hui
+const CK_LBL = { prolonger: 'Prolonger', recurrent: 'Rendre récurrent', habits: 'Ajuster', relance: 'Relancer', plan: 'Planifier', hyp: 'Passer en Moyenne', tri: 'Trier', adjust: 'Corriger', budgets: 'Voir', backup: 'Activer' };
+const CK_TONE = { r: [TriangleAlert, '#B42318'], o: [CircleAlert, '#B45309'], p: [Lightbulb, '#5B21D6'] };
+const ckRunner = ({ st, set, setSettings, open, setPage, upsert, setToast }) => (x) => {
+  if (x.act === 'prolonger') { upsert('items', { ...x.item, fin: null }); setToast({ msg: `${x.item.label} prolongé sans date de fin`, prev: st }); }
+  else if (x.act === 'recurrent') { upsert('items', { ...x.item, fin: null, every: x.item.cat === 'factures' ? 2 : 1 }); setToast({ msg: `${x.item.label} est maintenant récurrent`, prev: st }); }
+  else if (x.act === 'habits') open('habits');
+  else if (x.act === 'relance') open('relance', x.creance);
+  else if (x.act === 'plan') open('savplan');
+  else if (x.act === 'hyp') { set({ hypothese: 'moyen' }); setToast({ msg: 'Hypothèse « Moyenne » activée', prev: st }); }
+  else if (x.act === 'tri') open('tri');
+  else if (x.act === 'adjust') open('adjust', { accountId: x.account.id });
+  else if (x.act === 'budgets') setPage('budgets');
+  else if (x.act === 'backup') setSettings({ backup: true });
+};
+const ToneTile = ({ t }) => { const [I, col] = CK_TONE[t] || CK_TONE.p; return <span className="ctile sm" style={{ '--c': col }}><I size={15} strokeWidth={1.8} /></span>; };
+
+const Hex = ({ fill, stroke }) => <svg viewBox="0 0 20 22" className="hex"><path d="M10 1.5 18.5 6.3v9.4L10 20.5 1.5 15.7V6.3z" fill={fill} stroke={stroke || 'none'} strokeWidth={stroke ? 2 : 0} /></svg>;
+
+// ================= AUJOURD'HUI =================
+function Today(ctx) {
+  const { st, bal, open, setPage, addTx, setSettings, setToast, openCheck } = ctx;
+  const now = new Date(); const today = todayISO(); const cur = mkey(now);
+  const hr = now.getHours();
+  const sk = streakInfo(st);
+  const accs = st.accounts.filter((a) => (bal.accounts[a.id] || 0) > 0).sort((a, b) => (bal.accounts[b.id] || 0) - (bal.accounts[a.id] || 0));
+  const posTot = accs.reduce((s, a) => s + (bal.accounts[a.id] || 0), 0);
+  const big = accs.filter((a) => (bal.accounts[a.id] || 0) >= Math.max(1000, posTot * 0.02));
+  const nSmall = st.accounts.length - big.length;
+  const daySpent = useMemo(() => { const m = {}; for (const t of st.transactions) if (t.kind === 'out' && !t.envelopeId && CATS_VIE.includes(t.cat)) m[t.date] = (m[t.date] || 0) + (+t.montant || 0); return m; }, [st.transactions]);
+  const avgR = (a, b) => { let s = 0, n = 0; for (let d = new Date(a + 'T12:00:00'); isoD(d) <= b; d = addD(d, 1)) { s += daySpent[isoD(d)] || 0; n++; } return n ? s / n : 0; };
+  const startOk = isoD(addD(now, -13)) >= (st.dateInitiale || '');
+  const r7 = avgR(isoD(addD(now, -6)), today), p7 = avgR(isoD(addD(now, -13)), isoD(addD(now, -7)));
+  const lim = sk?.today?.lim || 0;
+  let ins = null;
+  if (startOk && p7 > 0) {
+    const d = (r7 - p7) / p7;
+    if (d <= -0.15) ins = [TrendingDown, <>Sur les 7 derniers jours, tu dépenses <b className="num">{fmt(r7)} par jour</b> en moyenne, contre {fmt(p7)} la semaine d’avant. Continue comme ça.</>];
+    else if (d >= 0.15) ins = [TrendingUp, <>Tes dépenses montent : <b className="num">{fmt(r7)} par jour</b> sur 7 jours, contre {fmt(p7)} la semaine d’avant{lim ? ` (repère : ${fmt(lim)})` : ''}.</>];
+    else ins = [Gauge, <>Rythme stable : <b className="num">{fmt(r7)} par jour</b> en moyenne cette semaine{lim ? ` pour ${fmt(lim)} visés` : ''}.</>];
+  } else if (r7 > 0) ins = [Gauge, <>Tu dépenses <b className="num">{fmt(r7)} par jour</b> en moyenne depuis 7 jours.</>];
+
+  // Graphique 14 jours
+  const L14 = sk?.last || Array.from({ length: 14 }, (_, i) => { const d = isoD(addD(now, i - 13)); return { d, v: daySpent[d] || 0, lim: 0, ok: true }; });
+  const W = 300, H = 120, B = 18, mx = Math.max(...L14.map((d) => d.v), lim * 1.2, 1000) * 1.05, bw = W / L14.length; const y = (v) => (H - B) * (1 - v / mx);
+
+  const habitsLeft = (st.settings.habits || []).filter((h) => habitToday(h) && !habitLogged(st, h));
+  const ck = checkup(st, bal); const run = ckRunner(ctx);
+  const up = upcoming(st, 7); const due = up.filter((o) => o.date <= today);
+  const recent = [...st.transactions].filter((t) => t.cat !== 'ajust').sort((a, b) => b.date.localeCompare(a.date)).slice(0, 6);
+  const bt = budgetTotal(st);
+  const steps = [
+    { t: 'Revenus et charges', done: st.items.length > 0, a: ['Ajouter un flux', () => open('item')] },
+    { t: 'Budgets', done: bt > 0, a: ['Définir', () => setPage('budgets')] },
+    { t: 'Objectifs', done: st.goals.length > 0, a: ['Créer', () => open('goal')] },
+  ];
+  const rem = lim ? lim - (sk.today.v || 0) : 0; const pr = lim ? Math.min(1, (sk.today.v || 0) / lim) : 0;
+  const R = 38, C = 2 * Math.PI * R;
+  const dl = (iso) => { const [, m, d] = iso.split('-'); return `${+d} ${MOIS3[+m - 1]}.`; };
+
+  return (
+    <div className="today">
+      {steps.some((s) => !s.done) && <div className="card onb"><b>Pour activer la projection :</b>{steps.map((s) => <button key={s.t} className={'onb-s' + (s.done ? ' done' : '')} onClick={s.a[1]}>{s.done ? <Check size={14} /> : <Plus size={14} />}{s.t}</button>)}</div>}
+      <div className="hero3">
+        <div className="night">
+          <svg className="night-hex" viewBox="0 0 100 100" aria-hidden="true"><path d="M50 3 91 26.5v47L50 97 9 73.5v-47z" fill="none" stroke="#fff" strokeWidth="6" /><path d="M50 25 72 37.5v25L50 75 28 62.5v-25z" fill="#fff" /></svg>
+          <div className="night-l">
+            <div className="hello">{hr >= 5 && hr < 18 ? 'Bonjour' : 'Bonsoir'} <b>Paul</b> · {now.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}</div>
+            <div className="lbl">Disponible sur tes comptes</div>
+            <div className="big num">{fmt(bal.dispo)}<small>FCFA</small></div>
+            <div className="split">{accs.map((a) => <i key={a.id} title={`${a.nom} · ${fmt(bal.accounts[a.id])}`} style={{ flex: bal.accounts[a.id], background: a.couleur }} />)}</div>
+            <div className="lg2">{big.map((a) => <button key={a.id} onClick={() => setPage('comptes')}><i style={{ background: a.couleur }} />{a.nom} <b className="num">{fmt(bal.accounts[a.id])}</b></button>)}{nSmall > 0 && <span className="dim">+ {nSmall} compte{nSmall > 1 ? 's' : ''} presque vide{nSmall > 1 ? 's' : ''}</span>}</div>
+            {ins && <div className="insight">{React.createElement(ins[0], { size: 16 })}<span>{ins[1]}</span></div>}
+          </div>
+          <div className="night-r">
+            <div className="lbl">Dépenses des 14 derniers jours{lim ? <span className="dim"> · pointillé = {fmt(lim)}/jour</span> : null}</div>
+            <svg viewBox={`0 0 ${W} ${H}`} className="spark14" role="img" aria-label="Dépenses par jour">
+              {L14.map((d, i) => { const yy = y(d.v); return <rect key={d.d} x={i * bw + 3} y={yy} width={bw - 6} height={Math.max(1.5, H - B - yy)} rx="2" fill={!lim || d.ok ? '#8B7CF0' : '#F5A300'} opacity={d.d === today ? 1 : 0.88}><title>{`${dLabel(d.d)} : ${fmt(d.v)} FCFA`}</title></rect>; })}
+              {lim > 0 && <line x1="0" x2={W} y1={y(lim)} y2={y(lim)} stroke="#fff" strokeOpacity=".5" strokeDasharray="3 4" />}
+              {L14.map((d, i) => (i % 3 === 1 || i === L14.length - 1 ? <text key={d.d} x={i * bw + bw / 2} y={H - 4} fill="#9890C8" fontSize="10" textAnchor="middle">{+d.d.slice(8)}</text> : null))}
+            </svg>
+          </div>
+        </div>
+        <div className="card dayc">
+          <span className="lbl3">Encore possible aujourd'hui</span>
+          {lim ? <div className="ring3">
+            <svg viewBox="0 0 92 92"><circle cx="46" cy="46" r={R} fill="none" stroke="var(--track)" strokeWidth="9" /><circle cx="46" cy="46" r={R} fill="none" stroke={rem < 0 ? 'var(--neg)' : 'var(--primary)'} strokeWidth="9" strokeLinecap="round" strokeDasharray={`${C * Math.max(0, 1 - pr)} ${C}`} transform="rotate(-90 46 46)" /><text x="46" y="51" textAnchor="middle" fontSize="15" fontWeight="600" fill="var(--ink)" fontFamily="Space Grotesk, Inter, sans-serif">{Math.max(0, Math.round((1 - pr) * 100))} %</text></svg>
+            <div><span className={'v num' + (rem < 0 ? ' neg' : '')}>{rem < 0 ? '−' : ''}{fmt(Math.abs(rem))}<small>FCFA</small></span><span className="f">{rem < 0 ? `Dépassé de ${fmt(-rem)}` : `${fmt(sk.today.v)} dépensés sur ${fmt(lim)}`}</span>{habitsLeft.length > 0 && <span className="f muted">{habitsLeft.slice(0, 3).map((h) => h.label).join(', ')} pas encore noté{habitsLeft.length > 1 ? 's' : ''}</span>}</div>
+          </div> : <div className="muted" style={{ fontSize: 13 }}>Définis tes budgets du mois pour voir ce que tu peux dépenser chaque jour. <button className="link" onClick={() => setPage('budgets')}>Définir</button></div>}
+          {sk && <div className="stk3">
+            <div className="stk3-h"><span className="lbl3">Série dans le budget</span><span className="muted">record {sk.best} jour{sk.best > 1 ? 's' : ''}</span></div>
+            <b className="stk3-v">{sk.cur} jour{sk.cur > 1 ? 's' : ''}</b>
+            <div className="hexes">{sk.last.map((d) => <span key={d.d} title={`${dLabel(d.d)} : ${fmt(d.v)} / ${fmt(d.lim)}`}><Hex fill={d.ok ? 'var(--honey)' : 'var(--hex-off)'} stroke={d.d === today ? 'var(--night-ring)' : ''} /></span>)}</div>
+          </div>}
+        </div>
+      </div>
+
+      <div className="tri3">
+        <div className="col3">
+          <QuickAdd st={st} addTx={addTx} setSettings={setSettings} setToast={setToast} open={open} v3 />
+          <div className="card c3">
+            <div className="c3-h"><h3>Dernières opérations</h3><button className="link" onClick={() => setPage('ops')}>Tout voir</button></div>
+            <div className="c3-b rows3">{recent.length ? recent.map((t) => (
+              <button key={t.id} className="r3" onClick={() => open('tx', { ...t, editId: t.id, montant: String(t.montant) })} title="Modifier">
+                <CatTile c={t.cat} label={t.label} kind={t.kind} />
+                <span className="r3-t"><b>{t.label}</b><span>{dl(t.date)} · {t.kind === 'move' ? `${accName(st, t.accountId)} → ${accName(st, t.toAccountId)}` : t.kind === 'save' || t.kind === 'withdraw' ? (gname(st, t.goalId) || 'Épargne') : accName(st, t.accountId)}</span></span>
+                <span className={'r3-a num ' + tone(t.kind)}>{sign(t.kind)}{fmt(t.montant)}</span>
+              </button>)) : <Empty icon={List} title="Aucune opération" text="Note ta première dépense ci-dessus." />}</div>
+          </div>
+        </div>
+        <div className="card c3">
+          <div className="c3-h"><h3>À traiter</h3><button className="link" onClick={openCheck}>Tout le check-up{ck.length > 3 ? ` (${ck.length})` : ''}</button></div>
+          <div className="c3-b">{ck.length ? ck.slice(0, 3).map((x) => (
+            <div className="al3" key={x.key}><ToneTile t={x.tone} /><div><b>{x.title}</b><span>{x.text}</span></div><button className="link" onClick={() => run(x)}>{CK_LBL[x.act] || 'Voir'}</button></div>
+          )) : <div className="ok-state"><ShieldCheck size={18} />Tout est en ordre</div>}</div>
+        </div>
+        <div className="card c3">
+          <div className="c3-h"><h3>Prochains jours</h3>{due.length > 0 ? <button className="btn p sm" onClick={() => open('bulk', due)}><CheckCheck size={14} />Valider ({due.length})</button> : <span className="muted">7 jours</span>}</div>
+          <div className="c3-b rows3">{up.length ? up.slice(0, 8).map((o) => (
+            <div className="r3" key={o.ref}>
+              <CatTile c={o.cat} label={o.label} kind={o.kind} />
+              <span className="r3-t"><b>{o.label}</b><span>{o.late ? <em className="warn">En retard</em> : dl(o.date)}{o.late ? ` · ${dl(o.date)}` : ''} · {CATS[o.cat] || ''}</span></span>
+              <span className={'r3-a num ' + tone(o.kind)}>{sign(o.kind)}{fmt(o.amount)}</span>
+              <button className="chk3" title="Valider" onClick={() => open('confirm', o)}><Check size={14} /></button>
+            </div>)) : <Empty icon={CalendarDays} title="Rien dans les 7 jours" text="Tes flux, tontines et remboursements apparaîtront ici." />}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ================= À VENIR : calendrier du mois =================
+function MonthCal({ st, open }) {
+  const [k, setK] = useState(mkey(new Date()));
+  const today = todayISO();
+  const occ = occurrences(st, k).filter((o) => o.date >= (st.dateInitiale || ''));
+  const [y, m] = k.split('-').map(Number);
+  const off = (new Date(y, m - 1, 1).getDay() + 6) % 7; const n = daysIn(k);
+  const tin = occ.filter((o) => o.kind === 'in').reduce((s, o) => s + o.amount, 0); const tout = occ.filter((o) => o.kind !== 'in').reduce((s, o) => s + o.amount, 0);
+  const cells = [];
+  for (let i = 0; i < off; i++) cells.push(<div key={'x' + i} className="cd x" />);
+  for (let d = 1; d <= n; d++) {
+    const iso = `${k}-${String(d).padStart(2, '0')}`; const os = occ.filter((o) => o.date === iso);
+    cells.push(<div key={iso} className={'cd' + (iso === today ? ' td' : '') + (os.length ? ' has' : '')}><span className="cn">{d}</span>{os.map((o) => { const done = !!st.done[o.ref]; return <button key={o.ref} className={'ce ' + (o.kind === 'in' ? 'in' : 'out') + (done ? ' done' : '')} title={`${o.label} · ${fmt(o.amount)} FCFA${done ? ' · fait' : ' · cliquer pour valider'}`} onClick={() => !done && open('confirm', { ...o, late: o.date < today })}>{o.kind === 'in' ? '+' : '−'}{short(o.amount)} {o.label}</button>; })}</div>);
+  }
+  return (
+    <div className="card cal3">
+      <div className="c3-h"><div className="mnav"><button className="ib" onClick={() => setK(addMonths(k, -1))} title="Mois précédent"><ChevronLeft size={16} /></button><h3>{mLabel(k, true)}</h3><button className="ib" onClick={() => setK(addMonths(k, 1))} title="Mois suivant"><ChevronRight size={16} /></button></div><span className="muted num"><span className="pos">+{fmt(tin)}</span> · −{fmt(tout)} prévus</span></div>
+      <div className="c3-b">
+        <div className="calg">{['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'].map((x) => <div key={x} className="ch">{x}</div>)}{cells}</div>
+        <div className="cal-list">{occ.map((o) => <div className={'r3' + (st.done[o.ref] ? ' done' : '')} key={o.ref}><CatTile c={o.cat} label={o.label} kind={o.kind} sm /><span className="r3-t"><b>{o.label}</b><span>{+o.date.slice(8)} {MOIS3[+o.date.slice(5, 7) - 1]}.{st.done[o.ref] ? ' · fait' : ''}</span></span><span className={'r3-a num ' + tone(o.kind)}>{sign(o.kind)}{fmt(o.amount)}</span></div>)}{!occ.length && <div className="muted" style={{ padding: 12 }}>Rien de prévu ce mois-ci.</div>}</div>
+        <div className="legend3"><span><i className="in" />Entrée</span><span><i className="out" />Sortie</span><span><i className="done" />Déjà validé</span></div>
+      </div>
+    </div>
+  );
+}
+
+// ================= COMPARATEUR (Budget) =================
+function Compare({ st, setSettings }) {
   const c = useC();
   const now = new Date(); const today = todayISO();
-  const up = upcoming(st);
   const cur = mkey(now);
   const bt = budgetTotal(st);
-  const goalsA = st.goals.filter(isGoalActive);
   const dash = st.settings.dash || {};
   const [per, setPer0] = useState(dash.per || 'm');
   const [acc, setAcc] = useState('all');
   const [cat, setCat] = useState('all');
   const setPer = (p) => { setPer0(p); setSettings({ dash: { ...dash, per: p } }); };
-  const steps = [
-    { t: 'Comptes', s: `${fcfa(bal.comptes)} sur tes comptes`, done: true, a: ['Gérer', () => setPage('comptes')] },
-    { t: 'Revenus et charges', s: 'Salaires, loyer, factures, abonnements…', done: st.items.length > 0, a: ['Ajouter un flux', () => open('item')] },
-    { t: 'Budgets', s: 'Plafonds par catégorie : alimentation, transport…', done: bt > 0, a: ['Définir', () => setPage('budgets')] },
-    { t: 'Objectifs', s: 'Ce pour quoi tu épargnes', done: st.goals.length > 0, a: ['Créer un objectif', () => open('goal')] },
-  ];
-  const onboarding = steps.some((s) => !s.done);
-
   // ---------- Dépenses filtrées (compte, catégorie) ----------
   const accOf = (t) => t.accountId || st.accounts[0]?.id;
   const outs = st.transactions.filter((t) => t.kind === 'out' && CATS_VIE.includes(t.cat) && (acc === 'all' || accOf(t) === acc));
@@ -509,86 +711,15 @@ function Dashboard({ st, bal, rows, open, setPage, addTx, setSettings, setToast,
   const catRows = CATS_VIE.map((k) => ({ k, a: sumR(curA, curB, outs.filter((t) => t.cat === k)), b: sumR(prevA, prevB, outs.filter((t) => t.cat === k)), bud: (+st.budgets[k] || 0) * (per === 'm' ? 1 : per === 's' ? 7 / daysIn(cur) : 1 / daysIn(cur)) }))
     .filter((r) => r.a || r.b).sort((x, y) => y.a - x.a);
 
-  // ---------- À surveiller ----------
-  const due = up.filter((o) => o.date <= today);
-  const alerts = [];
-  const neg = rows.find((r) => r.dispo < 0);
-  if (neg) alerts.push({ tone: 'r', icon: AlertTriangle, text: <>Solde négatif en <b>{mLabel(neg.key, true)}</b> ({fmt(neg.dispo)})</>, act: ['Voir', () => setPage('proj')] });
-  const lateN = due.filter((o) => o.late).length;
-  if (lateN) alerts.push({ tone: 'o', icon: Clock, text: <><b>{lateN}</b> échéance{lateN > 1 ? 's' : ''} en retard</>, act: ['Valider', () => open('bulk', due)] });
-  for (const k of CATS_VIE.filter((k) => +st.budgets[k] > 0 && spentCat(st, cur, k) > +st.budgets[k])) alerts.push({ tone: 'r', icon: Gauge, text: <><b>{CATS[k]}</b> dépassé de {fmt(spentCat(st, cur, k) - st.budgets[k])}</>, act: ['Voir', () => setPage('budgets')] });
-  for (const a of st.accounts.filter((a) => (bal.accounts[a.id] || 0) < 0)) alerts.push({ tone: 'r', icon: Smartphone, text: <><b>{a.nom}</b> négatif ({fmt(bal.accounts[a.id])})</>, act: ['Corriger', () => open('adjust', { accountId: a.id })] });
-  const nVie = st.transactions.filter((t) => t.kind === 'out' && t.cat === 'vie' && t.date.startsWith(cur)).length;
-  if (nVie >= 3) alerts.push({ tone: 'p', icon: ListChecks, text: <><b>{nVie}</b> dépenses à trier</>, act: ['Trier', () => open('tri')] });
-  for (const g of goalsA) { const r = goalReach(rows, g); if (!r || monthDiff(g.echeance, r.key) > 0) alerts.push({ tone: 'o', icon: Target, text: <><b>{g.nom}</b> en retard</>, act: ['Planifier', () => open('plan', g)] }); }
-  for (const g of goalsA.filter((g) => (bal.goals[g.id] || 0) >= g.montant)) alerts.push({ tone: 'g', icon: Trophy, text: <><b>{g.nom}</b> atteint</>, act: ['Clôturer', () => open('goalDone', g)] });
-  for (const sg of amountSuggestions(st)) alerts.push({ tone: 'p', icon: RefreshCw, text: <><b>{sg.item.label}</b> : réel {fmt(sg.avg)}</>, act: ['Ajuster', () => { upsert('items', { ...sg.item, montant: sg.avg }); setToast({ msg: `${sg.item.label} : ${fmt(sg.avg)} FCFA à partir de maintenant`, prev: st }); }] });
-  if (st.migratedV3) alerts.push({ tone: 'p', icon: Smartphone, text: <>Répartis ton solde entre tes comptes</>, act: ['Répartir', () => setPage('comptes')] });
-
-  const in7 = isoD(addD(now, 7));
-  const groupsE = [['En retard', up.filter((o) => o.late), 'warn'], ['Cette semaine', up.filter((o) => !o.late && o.date <= in7), 'p'], ['Plus tard', up.filter((o) => !o.late && o.date > in7), '']].filter((g) => g[1].length);
-  const sumNet = (l) => l.reduce((s, o) => s + (o.kind === 'in' ? o.amount : -o.amount), 0);
-  const ms = monthStats(st, cur);
-  const hr = now.getHours();
   const accSel = acc === 'all' ? null : st.accounts.find((a) => a.id === acc);
-  const dispoV = accSel ? bal.accounts[acc] || 0 : bal.dispo;
-  const over = ref > 0 && vCur > ref;
   const L = PER_L[per];
-  const checkN = checkup(st, bal).filter((x) => x.sev >= 2).length;
-  const QA = [
-    [Plus, 'Dépense', 'Ctrl+N', () => open('tx'), 'p'],
-    [ArrowLeftRight, 'Virement', 'Ctrl+B', () => open('tx', { kind: 'move' }), 's'],
-    [ClipboardPaste, 'Coller un SMS', 'Ctrl+M', () => open('sms', ''), 'g'],
-    [Scale, 'Ajuster soldes', 'Ctrl+J', () => open('adjust'), 'o'],
-    [Calculator, 'Puis-je me le permettre ?', 'Ctrl+P', () => open('afford'), 's'],
-    [Stethoscope, 'Check-up', checkN ? `${checkN} point${checkN > 1 ? 's' : ''}` : 'Tout va bien', () => setPage('check'), checkN ? 'r' : 'g'],
-  ];
-  const envNow = (st.envelopes || []).filter((e) => e.mois >= addMonths(cur, -1) && e.mois <= addMonths(cur, 1));
-
   return (
     <>
-      <Top title={`${hr >= 5 && hr < 18 ? 'Bonjour' : 'Bonsoir'} Paul`} sub={now.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).replace(/^./, (x) => x.toUpperCase())}>
-        <div className="seg dash-per">{[['j', "Aujourd'hui"], ['s', 'Semaine'], ['m', 'Mois']].map(([k, l]) => <button key={k} className={per === k ? 'on' : ''} onClick={() => setPer(k)}>{l}</button>)}</div>
-        <label className="dsel"><Smartphone size={14} /><Sel value={acc} onChange={(e) => setAcc(e.target.value)}><option value="all">Tous les comptes</option>{st.accounts.map((a) => <option key={a.id} value={a.id}>{a.nom}</option>)}</Sel><ChevronDown size={13} /></label>
-        <label className="dsel"><Tag size={14} /><Sel value={cat} onChange={(e) => setCat(e.target.value)}><option value="all">Toutes catégories</option>{CATS_VIE.map((k) => <option key={k} value={k}>{CATS[k]}</option>)}</Sel><ChevronDown size={13} /></label>
+      <Top sub="Tes dépenses courantes, jour par jour, semaine par semaine ou mois par mois">
+        <label className="dsel"><Smartphone size={14} /><Sel value={acc} onChange={(e) => setAcc(e.target.value)}><option value="all">Tous les comptes</option>{st.accounts.map((a) => <option key={a.id} value={a.id}>{a.nom}</option>)}</Sel></label>
+        <label className="dsel"><Tag size={14} /><Sel value={cat} onChange={(e) => setCat(e.target.value)}><option value="all">Toutes catégories</option>{CATS_VIE.map((k) => <option key={k} value={k}>{CATS[k]}</option>)}</Sel></label>
       </Top>
-      <div className="content dash dashB">
-        {onboarding && (
-          <div className="card" style={{ marginBottom: 16 }}>
-            <div className="card-h"><div><h3>Configuration de ton espace</h3><div className="sub">Renseigne tes données pour activer la projection</div></div><span className="badge p">{steps.filter((s) => s.done).length} / 4</span></div>
-            <div className="steps">{steps.map((s, i) => (
-              <div key={s.t} className={'step' + (s.done ? ' done' : '')}>
-                <div className="n">{s.done ? <Check size={13} /> : i + 1}</div><div className="t">{s.t}</div><div className="s">{s.s}</div>
-                <button className={'btn sm ' + (s.done ? 's' : 'p')} onClick={s.a[1]}>{s.done && i > 0 ? 'Compléter' : s.a[0]}</button>
-              </div>))}
-            </div>
-          </div>)}
-
-        <div className="dB-layout">
-          <div className="dB-main">
-            {/* ---- KPI ---- */}
-            <div className="dB-kpis">
-              <div className="dk dk-hero">
-                <div className="dk-top"><span>{accSel ? `Solde · ${accSel.nom}` : 'Solde disponible'}</span><span className={'hero-pill ' + (ms.solde >= 0 ? 'up' : 'down')}>{ms.solde >= 0 ? '+' : '−'}{fmt(Math.abs(ms.solde))} ce mois</span></div>
-                <div className="dk-v num">{fmt(dispoV)}<small>FCFA</small></div>
-                <div className="dk-accs">{st.accounts.map((a) => <button key={a.id} className={acc === a.id ? 'on' : ''} title={a.nom} onClick={() => setAcc(acc === a.id ? 'all' : a.id)}><i style={{ background: a.couleur }} />{short(bal.accounts[a.id] || 0)}</button>)}</div>
-                <svg className="dk-wave" viewBox="0 0 200 60" preserveAspectRatio="none"><path d="M0 45 C40 30 60 52 100 34 S160 18 200 26 L200 60 L0 60 Z" /></svg>
-              </div>
-              <div className={'dk dk-spent' + (over ? ' over' : '')}>
-                <div className="dk-top"><span className="dk-ic"><ArrowUpRight size={15} /></span><span>Dépensé <em className="dk-p">{per === 'j' ? 'auj.' : per === 's' ? 'semaine' : 'mois'}</em></span>{delta != null && <span className={'dk-delta ' + (delta > 0 ? 'up' : 'dn')} title={`vs ${L[1]} (${fmt(vPrev)})`}>{delta > 0 ? '↑' : '↓'} {Math.abs(delta)} %</span>}</div>
-                <div className="dk-v num">{fmt(vCur)}<small>FCFA</small></div>
-                <div className="dk-bar"><i style={{ width: ref ? Math.min(100, (vCur / ref) * 100) + '%' : 0 }} /></div>
-                <div className="dk-f">{ref ? <>{Math.round((vCur / ref) * 100)} % de <b className="num">{fmt(ref)}</b> {per === 'm' ? 'de budget' : per === 's' ? 'de budget semaine' : 'de budget jour'}</> : 'Aucun budget défini'}</div>
-                {bars.length >= 4 && <div className="dk-spark">{bars.slice(-8).map((b, i) => <i key={i} className={b.cur ? 'cur' : ''} style={{ height: Math.max(6, (b.v / Math.max(1, ...bars.slice(-8).map((x) => x.v))) * 100) + '%' }} />)}</div>}
-              </div>
-              <div className={'dk dk-left' + (reste < 0 ? ' over' : '')}>
-                <div className="dk-top"><span className="dk-ic"><Wallet size={15} /></span><span>Reste <em className="dk-p">{per === 'j' ? 'auj.' : per === 's' ? 'semaine' : 'mois'}</em></span></div>
-                <div className={'dk-v num' + (reste < 0 ? ' neg' : '')}>{reste < 0 ? '−' : ''}{fmt(Math.abs(reste))}<small>FCFA</small></div>
-                <div className="dk-f">{reste < 0 ? `Budget dépassé de ${fmt(-reste)}` : per === 'j' ? 'encore possible aujourd’hui' : <>soit <b className="num">{fmt(perDayLeft)}</b> par jour ({daysLeftP} j)</>}</div>
-                <div className="dk-ring"><Ring pct={ref ? Math.min(1, Math.max(0, reste) / ref) : 0} color={reste < 0 ? 'var(--neg)' : 'var(--pos)'} size={54} stroke={6} label={ref ? `${Math.max(0, Math.round((reste / ref) * 100))}%` : '—'} /></div>
-              </div>
-            </div>
-
+      <div className="content">
             {/* ---- Comparateur ---- */}
             <div className="card cmpB">
               <div className="card-h"><div><h3>Comparateur de dépenses</h3><div className="sub">Dépenses courantes {L[2]}{cat !== 'all' ? ` · ${CATS[cat]}` : ''}{accSel ? ` · ${accSel.nom}` : ''}</div></div>
@@ -626,52 +757,6 @@ function Dashboard({ st, bal, rows, open, setPage, addTx, setSettings, setToast,
               </div>}
             </div>
 
-            {/* ---- Échéances ---- */}
-            <Card title="Échéances" sub="Valide chaque mouvement quand il a lieu" flush className="mt" action={due.length > 0 ? <button className="btn p sm" onClick={() => open('bulk', due)}><CheckCheck size={14} />Valider les échues ({due.length})</button> : <button className="btn s sm" onClick={() => setPage('flux')}>Flux</button>}>
-              {groupsE.length ? groupsE.map(([title, list, tn]) => (
-                <div key={title}>
-                  <div className={'grp-h ' + tn}><span>{title}</span><span className="num">{list.length} · {sumNet(list) >= 0 ? '+' : '−'}{fmt(Math.abs(sumNet(list)))}</span></div>
-                  {list.slice(0, title === 'Plus tard' ? 4 : 8).map((o) => <OccRow key={o.ref} o={o} st={st} open={open} />)}
-                </div>)) : <Empty icon={CalendarDays} title="Aucune échéance" text="Les flux, tontines et créances que tu ajoutes apparaîtront ici." />}
-            </Card>
-
-            <Card title="Trajectoire" sub={`Jusqu'en ${mLabel(rows[rows.length - 1].key, true)}`} className="mt" action={<div className="legend"><span><i style={{ background: 'var(--primary)' }} />Disponible</span><span><i style={{ background: 'var(--sky)' }} />Épargne</span></div>}>
-              <TrendChart rows={rows} h={230} />
-            </Card>
-          </div>
-
-          {/* ---- Colonne de droite ---- */}
-          <div className="dB-rail">
-            <div className="card rail-card">
-              <div className="rc-h"><h3>Actions rapides</h3><button className="ib" title="Raccourcis (F1)" onClick={() => open('keys')}><Keyboard size={15} /></button></div>
-              <div className="qaB">{QA.map(([I, l, k, fn, tn]) => <button key={l} onClick={fn}><span className={'chip-ic ' + tn}><I size={16} /></span><b>{l}</b><kbd>{k}</kbd></button>)}</div>
-            </div>
-            <StreakCard st={st} />
-            {envNow.length > 0 && <div className="card rail-card"><div className="rc-h"><h3>Enveloppes</h3><button className="btn s sm" onClick={() => setPage('budgets')}>Voir</button></div><div style={{ display: 'grid', gap: 10 }}>{envNow.map((e) => <EnvelopeCard key={e.id} e={e} st={st} open={open} compact />)}</div></div>}
-            <QuickAdd st={st} addTx={addTx} setSettings={setSettings} setToast={setToast} open={open} compact />
-            <div className="card rail-card">
-              <div className="rc-h"><h3>À surveiller</h3>{alerts.length > 0 && <span className="badge">{alerts.length}</span>}</div>
-              {alerts.length ? alerts.slice(0, 6).map((a, i) => (
-                <div className={'alB ' + a.tone} key={i}>
-                  <a.icon size={15} />
-                  <div>{a.text}</div>
-                  <button onClick={a.act[1]}>{a.act[0]}</button>
-                </div>)) : <div className="ok-state"><ShieldCheck size={18} />Tout est en ordre</div>}
-            </div>
-            <div className="card rail-card">
-              <div className="rc-h"><h3>Objectifs</h3><button className="btn s sm" onClick={() => setPage('goals')}>Voir</button></div>
-              {goalsA.length ? goalsA.slice(0, 4).map((g) => {
-                const v = bal.goals[g.id] || 0; const p = Math.min(1, v / g.montant); const r = goalReach(rows, g); const ok = r && monthDiff(g.echeance, r.key) <= 0;
-                return (
-                  <div className="goalB" key={g.id} onClick={() => open('goalHist', g)}>
-                    <Ring pct={p} color={g.couleur} size={40} stroke={5} label="" />
-                    <div style={{ flex: 1, minWidth: 0 }}><div className="gB-n">{g.nom}</div><div className="gB-s num">{fmt(v)} / {fmt(g.montant)}</div></div>
-                    <div className="gB-r"><b className="num">{Math.round(p * 100)} %</b><span className={ok ? 'pos' : 'neg'}>{v >= g.montant ? 'Atteint' : r ? mLabel(r.key) : 'Non atteint'}</span></div>
-                  </div>);
-              }) : <Empty icon={Target} title="Aucun objectif" text="Crée un objectif d'épargne." action={<button className="btn p sm" onClick={() => open('goal')}><Plus size={14} />Créer</button>} />}
-            </div>
-          </div>
-        </div>
       </div>
     </>
   );
@@ -1058,10 +1143,10 @@ function Creances({ st, open, remove, undoRef }) {
 // ================= CRÉANCES =================
 
 // ================= OPÉRATIONS =================
-function Operations({ st, set, open, delTx, updateTx, doExcel, focusSearch, setToast }) {
+function Operations({ st, set, open, delTx, updateTx, doExcel, focusSearch, setToast, initF }) {
   const sRef = React.useRef(null);
   useEffect(() => { if (focusSearch) setTimeout(() => sRef.current?.focus(), 50); }, [focusSearch]);
-  const [f, setF] = useState('all');
+  const [f, setF] = useState(initF || 'all');
   const [m, setM] = useState(mkey(new Date()));
   const [acc, setAcc] = useState('all');
   const [q, setQ] = useState('');
@@ -1160,66 +1245,78 @@ function Params({ st, set, setSettings, open, version, checkUpdate, lastBackup, 
   const exp = async () => { const json = JSON.stringify(st, null, 2); const name = `kalis-sauvegarde-${todayISO()}.json`; if (native) native.saveFile(name, btoa(unescape(encodeURIComponent(json))), [{ name: 'Sauvegarde Kalis', extensions: ['json'] }]); else { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([json])); a.download = name; a.click(); } };
   const imp = (e) => { const file = e.target.files?.[0]; if (!file) return; file.text().then((t) => { try { const s = migrate(JSON.parse(t)); if (s) set(s); else alert('Fichier non reconnu'); } catch (err) { alert('Fichier invalide'); } }); };
   const S = st.settings;
-  const Sw = ({ on, onChange, disabled }) => <button type="button" className={'sw-t' + (on ? ' on' : '')} disabled={disabled} onClick={() => onChange(!on)} role="switch" aria-checked={!!on}><i /></button>;
-  const Row = ({ t, h, children }) => <div className="set-row"><div className="set-l"><b>{t}</b>{h && <span>{h}</span>}</div><div className="set-c">{children}</div></div>;
-  const SECS = [['general', 'Général', Settings], ['apparence', 'Apparence', Palette], ['rappels', 'Rappels', Bell], ['securite', 'Sécurité', ShieldCheck], ['sauvegarde', 'Sauvegarde', FolderOpen], ['maj', 'Mises à jour', RefreshCw], ['donnees', 'Données', Database], ['clavier', 'Raccourcis', Keyboard], ['apropos', 'À propos', Info]];
+  const Sw = ({ on, onChange, disabled }) => <button type="button" className={'sw3' + (on ? ' on' : '')} disabled={disabled} onClick={() => onChange(!on)} role="switch" aria-checked={!!on}><i /></button>;
+  const Row = ({ t, h, children, sw }) => <div className={'srow' + (sw ? ' t' : '')}><div className="sl"><b>{t}</b>{h && <span>{h}</span>}</div><div className="sc">{children}</div></div>;
+  const SECS = [['general', 'Général', SlidersHorizontal], ['apparence', 'Apparence', Palette], ['rappels', 'Rappels', Bell], ['securite', 'Sécurité', ShieldCheck], ['sauvegarde', 'Sauvegarde', HardDrive], ['maj', 'Mises à jour', RefreshCw], ['donnees', 'Données', Database], ['clavier', 'Raccourcis', Keyboard], ['apropos', 'À propos', Info]];
   const go = (k) => { setSec(k); document.getElementById('set-' + k)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
-  const Head = ({ id, icon: I, t, s }) => <div className="set-h" id={'set-' + id}><span className="set-hi"><I size={17} /></span><div><h3>{t}</h3>{s && <div className="sub">{s}</div>}</div></div>;
+  const Head = ({ id, icon: I, t, s }) => <div className="sh" id={'set-' + id}><span className="ctile sm" style={{ '--c': '#5B21D6' }}><I size={15} strokeWidth={1.8} /></span><div><h3>{t}</h3>{s && <span>{s}</span>}</div></div>;
+  const bkName = lastBackup ? lastBackup.split(/[\\/]/).pop() : null;
+  const nOps = st.transactions.length;
   return (
-    <>
-      <Top title="Paramètres" sub={version ? `Kalis ${version}` : 'Kalis'} />
-      <div className="content set-wrap">
-        <nav className="set-nav">{SECS.map(([k, l, I]) => <button key={k} className={sec === k ? 'on' : ''} onClick={() => go(k)}><I size={15} />{l}</button>)}</nav>
-        <div className="set-body">
-          <div className="card set-card"><Head id="general" icon={Settings} t="Général" s="Point de départ et projection" />
-            <Row t="Date de départ" h="Les soldes de départ des comptes sont ceux de cette date"><input className="inp" style={{ width: 180 }} type="date" value={st.dateInitiale} onChange={(e) => set({ dateInitiale: e.target.value })} /></Row>
-            <Row t="Horizon de projection" h="Jusqu'où calculer la trajectoire"><input className="inp" style={{ width: 180 }} type="month" value={st.horizon} onChange={(e) => e.target.value && set({ horizon: e.target.value })} /></Row>
+    <div className="params3">
+      <div className="card prof3">
+        <img src={logoUrl} alt="" />
+        <div className="pt"><b>Paul Aurlin</b><span>Kalis {version || '3'} · suivi depuis le {dLabel(st.dateInitiale)} · {nOps} opération{nOps > 1 ? 's' : ''}</span></div>
+        <div className="pills">
+          <span className={'pill' + (bkName ? ' ok' : '')}>{bkName ? <Check size={13} /> : <HardDrive size={13} />}{bkName ? 'Sauvegardé aujourd’hui' : S.backup === false ? 'Sauvegarde désactivée' : 'Sauvegarde en attente'}</span>
+          <span className={'pill' + (S.pinHash ? ' ok' : '')}><Lock size={13} />{S.pinHash ? 'Code PIN actif' : 'Sans code PIN'}</span>
+          {upd && upd !== 'loading' && <span className={'pill' + (upd.status === 'latest' ? ' ok' : '')}><RefreshCw size={13} />{upd.status === 'latest' ? 'À jour' : upd.status === 'ready' ? `${upd.version} prête` : 'Vérification impossible'}</span>}
+        </div>
+      </div>
+      <div className="sets">
+        <nav className="snav">{SECS.map(([k, l, I]) => <button key={k} className={sec === k ? 'on' : ''} onClick={() => go(k)}><I size={16} strokeWidth={1.8} />{l}</button>)}</nav>
+        <div className="sbody">
+          <div className="card scard"><Head id="general" icon={SlidersHorizontal} t="Général" s="Point de départ et calculs de la projection" />
+            <Row t="Date de départ" h="Les soldes de départ des comptes sont ceux de ce jour"><input className="inp" style={{ width: 170 }} type="date" value={st.dateInitiale} onChange={(e) => set({ dateInitiale: e.target.value })} /></Row>
+            <Row t="Horizon de projection" h="Jusqu'où calculer la trajectoire"><input className="inp" style={{ width: 170 }} type="month" value={st.horizon} onChange={(e) => e.target.value && set({ horizon: e.target.value })} /></Row>
             <Row t="Hypothèse de revenus" h="Pour les revenus variables (min–max)"><div className="seg">{[['bas', 'Prudente'], ['moyen', 'Moyenne'], ['haut', 'Haute']].map(([k, l]) => <button key={k} className={(st.hypothese || 'bas') === k ? 'on' : ''} onClick={() => set({ hypothese: k })}>{l}</button>)}</div></Row>
-            <Row t="Compter les revenus incertains" h="Dans la projection et le plan du mois"><Sw on={st.inclureIncertains !== false} onChange={(v) => set({ inclureIncertains: v })} /></Row>
+            <Row sw t="Compter les revenus incertains" h="Dans la projection et le plan du mois"><Sw on={st.inclureIncertains !== false} onChange={(v) => set({ inclureIncertains: v })} /></Row>
           </div>
-          <div className="card set-card"><Head id="apparence" icon={Palette} t="Apparence" s="« Automatique » suit le réglage de Windows" />
-            <div className="theme-cards">{[['light', Sun, 'Clair'], ['dark', Moon, 'Sombre'], ['system', Monitor, 'Automatique']].map(([m, I, l]) => (
-              <button key={m} className={'theme-card t-' + m + ((st.theme || 'light') === m ? ' on' : '')} onClick={() => set({ theme: m })}><span className="tc-prev"><i /><i /><i /></span><span className="tc-l"><I size={14} />{l}</span></button>))}</div>
+          <div className="card scard"><Head id="apparence" icon={Palette} t="Apparence" s="« Automatique » suit le réglage de Windows" />
+            <div className="themes3">{[['light', Sun, 'Clair'], ['dark', Moon, 'Sombre'], ['system', Monitor, 'Automatique']].map(([m, I, l]) => (
+              <button key={m} className={'th3 ' + m + ((st.theme || 'light') === m ? ' on' : '')} onClick={() => set({ theme: m })}><span className="tp"><i /><i /><i /><em /></span><span className="tl"><I size={14} />{l}{(st.theme || 'light') === m && <Check size={14} className="ck" />}</span></button>))}</div>
+            <Row sw t="Barre latérale réduite" h="Ne garder que les icônes"><Sw on={!!S.sideCollapsed} onChange={(v) => setSettings({ sideCollapsed: v })} /></Row>
           </div>
-          <div className="card set-card"><Head id="rappels" icon={Bell} t="Rappels" s="Notifications Windows" />
-            <Row t="Échéances du jour et du lendemain" h="Une notification par jour"><Sw on={S.notif !== false} onChange={(v) => setSettings({ notif: v })} /></Row>
-            <Row t="Bilan de la semaine" h={<>Le dimanche soir · <a className="link" onClick={(e) => { e.preventDefault(); sendWeekly(true); }}>Voir maintenant</a></>}><Sw on={S.weekly !== false} onChange={(v) => setSettings({ weekly: v })} /></Row>
-            <Row t="Rapport PDF du mois écoulé" h={<>Le 1er, dans {'Documents\\Kalis\\Rapports'} · <a className="link" onClick={(e) => { e.preventDefault(); makeReport(prevMonth()); }}>Générer {mLabel(prevMonth(), true)}</a>{native && <> · <a className="link" onClick={async (e) => { e.preventDefault(); native.openPath(await native.reportDir()); }}>Ouvrir le dossier</a></>}</>}><Sw on={S.report !== false} onChange={(v) => setSettings({ report: v })} /></Row>
-            <Row t="Lancer Kalis au démarrage" h={native ? 'Démarre en réduit pour ne rater aucun rappel' : "Disponible dans l'application"}><Sw on={!!auto} disabled={!native} onChange={async (v) => native && setAuto(await native.setAutoLaunch(v))} /></Row>
+          <div className="card scard"><Head id="rappels" icon={Bell} t="Rappels" s="Notifications Windows" />
+            <Row sw t="Échéances du jour et du lendemain" h="Une notification par jour"><Sw on={S.notif !== false} onChange={(v) => setSettings({ notif: v })} /></Row>
+            <Row sw t="Bilan de la semaine" h={<>Le dimanche soir · <a className="link" onClick={(e) => { e.preventDefault(); sendWeekly(true); }}>Voir maintenant</a></>}><Sw on={S.weekly !== false} onChange={(v) => setSettings({ weekly: v })} /></Row>
+            <Row sw t="Rapport PDF du mois écoulé" h={<>Le 1er, dans {'Documents\\Kalis\\Rapports'} · <a className="link" onClick={(e) => { e.preventDefault(); makeReport(prevMonth()); }}>Générer {mLabel(prevMonth(), true)}</a>{native && <> · <a className="link" onClick={async (e) => { e.preventDefault(); native.openPath(await native.reportDir()); }}>Ouvrir le dossier</a></>}</>}><Sw on={S.report !== false} onChange={(v) => setSettings({ report: v })} /></Row>
+            <Row sw t="Lancer Kalis au démarrage" h={native ? 'Démarre réduit pour ne rater aucun rappel' : "Disponible dans l'application"}><Sw on={!!auto} disabled={!native} onChange={async (v) => native && setAuto(await native.setAutoLaunch(v))} /></Row>
           </div>
-          <div className="card set-card"><Head id="securite" icon={ShieldCheck} t="Sécurité" s="Code PIN à l'ouverture · Ctrl+L pour verrouiller" />
-            <Row t="Code PIN" h={S.pinHash ? `Code à ${S.pinLen || '4 à 6'} chiffres, demandé à chaque ouverture` : 'Aucun code défini'}>
-              {S.pinHash ? <div style={{ display: 'flex', gap: 8 }}><button className="btn s sm" onClick={() => open('pin')}><KeyRound size={14} />Changer</button><button className="btn d sm" onClick={() => setSettings({ pinHash: null, pinLen: null })}>Désactiver</button></div> : <button className="btn p sm" onClick={() => open('pin')}><KeyRound size={14} />Définir</button>}
+          <div className="card scard"><Head id="securite" icon={ShieldCheck} t="Sécurité" s="Code demandé à chaque ouverture · Ctrl+L pour verrouiller" />
+            <Row t="Code PIN" h={S.pinHash ? `${S.pinLen || '4 à 6'} chiffres` : 'Aucun code défini'}>
+              {S.pinHash ? <><span className="pin3">{Array.from({ length: +S.pinLen || 4 }, (_, i) => <i key={i} />)}</span><button className="btn s sm" onClick={() => open('pin')}><KeyRound size={14} />Changer</button><button className="btn d sm" onClick={() => setSettings({ pinHash: null, pinLen: null })}>Désactiver</button></> : <button className="btn p sm" onClick={() => open('pin')}><KeyRound size={14} />Définir un code</button>}
             </Row>
           </div>
-          <div className="card set-card"><Head id="sauvegarde" icon={FolderOpen} t="Sauvegarde automatique" s="Une copie par jour, 30 jours conservés" />
-            <Row t="Sauvegarde quotidienne" h={lastBackup ? `Dernière copie : ${lastBackup.split(/[\\/]/).pop()}` : 'Aucune copie dans cette session'}><Sw on={S.backup !== false} onChange={(v) => setSettings({ backup: v })} /></Row>
-            <Row t="Dossier" h={<span style={{ wordBreak: 'break-all' }}>{S.backupDir || defDir || 'Documents\\Kalis\\Sauvegardes'}</span>}>
-              <div style={{ display: 'flex', gap: 8 }}><button className="btn s sm" disabled={!native} onClick={async () => { const d = await native.chooseDir(); if (d) setSettings({ backupDir: d }); }}>Changer</button><button className="btn s sm" disabled={!native} onClick={() => native.openPath(S.backupDir || defDir)}>Ouvrir</button></div>
+          <div className="card scard"><Head id="sauvegarde" icon={HardDrive} t="Sauvegarde automatique" s="Une copie par jour, 30 jours conservés" />
+            <div className={'bk3' + (bkName ? '' : ' off')}><span className="ctile sm" style={{ '--c': bkName ? '#0E7C55' : '#64748B' }}>{bkName ? <Check size={15} /> : <Clock size={15} />}</span><div><b>{bkName ? 'Copie du jour faite' : S.backup === false ? 'Sauvegarde désactivée' : 'Copie en attente'}</b><span>{bkName || 'La copie se fait quelques secondes après chaque modification'}</span></div></div>
+            <Row sw t="Sauvegarde quotidienne" h="À chaque modification, une copie par jour"><Sw on={S.backup !== false} onChange={(v) => setSettings({ backup: v })} /></Row>
+            <Row t="Dossier" h={<span className="path3">{S.backupDir || defDir || 'Documents\\Kalis\\Sauvegardes'}</span>}>
+              <button className="btn s sm" disabled={!native} onClick={async () => { const d = await native.chooseDir(); if (d) setSettings({ backupDir: d }); }}><FolderOpen size={14} />Changer</button><button className="btn s sm" disabled={!native} onClick={() => native.openPath(S.backupDir || defDir)}>Ouvrir</button>
             </Row>
-            <div className="set-tip"><Info size={14} />Choisis ton dossier Google Drive ou OneDrive pour avoir aussi une copie dans le cloud.</div>
+            <div className="tip3"><Cloud size={15} /><span>Choisis ton dossier Google Drive ou OneDrive pour garder aussi une copie dans le cloud.</span></div>
           </div>
-          <div className="card set-card"><Head id="maj" icon={RefreshCw} t="Mises à jour" s="Depuis GitHub (aurlin10/kalis)" />
-            <Row t="Vérifier automatiquement" h="Au démarrage puis toutes les 6 heures"><Sw on={S.autoUpdate !== false} onChange={(v) => setSettings({ autoUpdate: v })} /></Row>
-            <Row t={`Version installée : ${version || '—'}`} h={upd && upd !== 'loading' ? (upd.status === 'latest' ? 'Kalis est à jour' : upd.status === 'ready' ? `Version ${upd.version} prête, redémarre pour l'installer` : upd.message) : 'Dernière vérification inconnue'}>
+          <div className="card scard"><Head id="maj" icon={RefreshCw} t="Mises à jour" s="Depuis GitHub · aurlin10/kalis" />
+            <Row t={`Version installée : ${version || '—'}`} h={upd && upd !== 'loading' ? (upd.status === 'latest' ? 'Kalis est à jour' : upd.status === 'ready' ? `Version ${upd.version} prête, redémarre pour l'installer` : upd.message) : 'Clique sur Vérifier pour chercher une nouvelle version'}>
               <button className="btn s sm" disabled={!native || upd === 'loading'} onClick={async () => { setUpd('loading'); setUpd(await checkUpdate()); }}><RefreshCw size={14} className={upd === 'loading' ? 'spin' : ''} />Vérifier</button>
             </Row>
+            <Row sw t="Vérifier automatiquement" h="Au démarrage puis toutes les 6 heures"><Sw on={S.autoUpdate !== false} onChange={(v) => setSettings({ autoUpdate: v })} /></Row>
           </div>
-          <div className="card set-card"><Head id="donnees" icon={Database} t="Données" s="Tout est stocké sur ce PC" />
-            <div className="data-acts">
-              <button onClick={exp}><Download size={18} /><b>Exporter</b><span>Fichier JSON complet</span></button>
-              <button onClick={doExcel}><FileSpreadsheet size={18} /><b>Excel</b><span>Opérations, flux, projection</span></button>
-              <label><Upload size={18} /><b>Importer</b><span>Restaurer une sauvegarde</span><input type="file" accept=".json" hidden onChange={imp} /></label>
+          <div className="card scard"><Head id="donnees" icon={Database} t="Données" s="Tout est stocké sur ce PC, rien en ligne" />
+            <div className="acts3">
+              <button onClick={exp}><span className="ctile" style={{ '--c': '#5B21D6' }}><Download size={17} /></span><b>Exporter</b><span>Fichier JSON complet</span></button>
+              <button onClick={doExcel}><span className="ctile" style={{ '--c': '#15803D' }}><FileSpreadsheet size={17} /></span><b>Excel</b><span>Opérations, flux, projection</span></button>
+              <label><span className="ctile" style={{ '--c': '#0E7490' }}><Upload size={17} /></span><b>Importer</b><span>Restaurer une sauvegarde</span><input type="file" accept=".json" hidden onChange={imp} /></label>
             </div>
-            <div className="set-danger"><div><b>Réinitialiser Kalis</b><span>Efface toutes les données de ce PC. Pense à exporter avant.</span></div><button className="btn d sm" onClick={() => { if (window.confirm('Effacer toutes les données ?')) set(defaultState()); }}><RotateCcw size={14} />Réinitialiser</button></div>
+            <div className="danger3"><div><b>Réinitialiser Kalis</b><span>Efface toutes les données de ce PC. Exporte avant.</span></div><button className="btn d sm" onClick={() => { if (window.confirm('Effacer toutes les données ?')) set(defaultState()); }}><RotateCcw size={14} />Réinitialiser</button></div>
           </div>
-          <div className="card set-card"><Head id="clavier" icon={Keyboard} t="Raccourcis clavier" s="F1 affiche cette liste partout" /><KeysList /></div>
-          <div className="card set-card about"><Head id="apropos" icon={Info} t="À propos" />
-            <div className="about-b"><img src={logoUrl} alt="" /><div><b>Kalis {version || '2'}</b><span>Finances personnelles en FCFA · Wave, Orange Money, Djamo, Mixx by Yas</span><span className="muted">Données 100 % locales · Paul Aurlin Mikabissi</span></div></div>
+          <div className="card scard"><Head id="clavier" icon={Keyboard} t="Raccourcis clavier" s="F1 affiche cette liste partout dans Kalis" /><KeysList /></div>
+          <div className="card scard"><Head id="apropos" icon={Info} t="À propos" />
+            <div className="about3"><img src={logoUrl} alt="" /><div><b>Kalis {version || '3'}</b><span>Finances personnelles en FCFA · Wave, Orange Money, Djamo, Mixx by Yas, Espèces</span><span className="muted">Données 100 % locales · Paul Aurlin Mikabissi</span></div></div>
           </div>
         </div>
       </div>
-    </>
+    </div>
   );
 }
 
@@ -1299,6 +1396,14 @@ function TransferModal({ init, st, bal, onClose, onOk }) {
   );
 }
 
+// Repères visuels dans les listes : icône de catégorie, pastille de compte
+let ACC_REG = {};
+const SelLead = ({ v }) => {
+  if (ACC_REG[v]) { const a = ACC_REG[v]; return <AccBadge a={a} sm />; }
+  if (CATS[v] && CAT_META[v]) return <CatTile c={v} xs />;
+  return null;
+};
+const AccBadge = ({ a, sm }) => <span className={'accb' + (sm ? ' sm' : '')} style={{ '--c': a.couleur, color: /mixx/i.test(a.nom) ? '#2A2000' : '#fff' }}>{/esp[eè]ces|cash/i.test(a.nom) ? <Banknote size={sm ? 12 : 15} /> : (a.nom.match(/\b\w/g) || ['?']).slice(0, 2).join('').toUpperCase()}</span>;
 const AccPicker = ({ st, value, onChange, disabled, exclude }) => (
   <div className="acc-pick">{st.accounts.filter((a) => a.id !== exclude).map((a) => (
     <button key={a.id} type="button" disabled={disabled} className={value === a.id ? 'on' : ''} onClick={() => onChange(a.id)} style={{ '--c': a.couleur }}><i style={{ background: a.couleur }} />{a.nom}</button>))}</div>
@@ -2064,10 +2169,24 @@ function GoalHistoryModal({ g, st, bal, onClose }) {
 // =====================================================================
 // ================= 1.6.0 : saisie express, plan d'épargne, catégories =
 // =====================================================================
-const CAT_ICONS = { alimentation: UtensilsCrossed, transport: Bus, loisirs: Ticket, shopping: ShoppingBag, sante: HeartPulse, famille: Users, vie: Wallet };
-const catIcon = (c) => CAT_ICONS[c] || Tag;
+const CAT_META = {
+  alimentation: [Utensils, '#15803D'], transport: [Bus, '#1D4ED8'], loisirs: [PartyPopper, '#7E22CE'], shopping: [ShoppingBag, '#B45309'], sante: [HeartPulse, '#B91C1C'],
+  famille: [HeartHandshake, '#BE185D'], vie: [ShoppingBasket, '#0F766E'], logement: [House, '#475569'], factures: [ReceiptText, '#0E7490'], abonnements: [Repeat, '#0369A1'],
+  salaire: [BriefcaseBusiness, '#047857'], pension: [Landmark, '#047857'], freelance: [Laptop, '#047857'], remboursement: [HandCoins, '#4338CA'], tontine: [UsersRound, '#A16207'],
+  epargne: [PiggyBank, '#5B21D6'], autre: [CircleEllipsis, '#64748B'], frais: [Percent, '#64748B'], evenement: [Gift, '#C2410C'], pret: [HandCoins, '#4338CA'], emprunt: [HandCoins, '#4338CA'], ajust: [Scale, '#64748B'],
+};
+const LBL_IC = [[/wi-?fi|internet|fibre/i, Wifi], [/music|spotify|deezer|netflix/i, Music], [/snap|whatsapp|forfait/i, MessageCircle], [/poubelle|ordures/i, Trash2], [/\beau\b|sde/i, Droplet], [/[ée]lectric|senelec|woyofal/i, Zap], [/karmoova/i, Car], [/kahpoo/i, Store], [/loyer/i, House]];
+const catIcon = (c) => (CAT_META[c] || [Tag])[0];
+const CAT_ICONS = Object.fromEntries(Object.entries(CAT_META).map(([k, [I]]) => [k, I]));
+const CatTile = ({ c, label, kind, sm, xs }) => {
+  let [I, col] = CAT_META[c] || [Tag, '#64748B'];
+  if (kind === 'move') [I, col] = [ArrowLeftRight, '#475569'];
+  else if (kind === 'save' || kind === 'withdraw') [I, col] = [PiggyBank, '#5B21D6'];
+  const o = label && LBL_IC.find(([r]) => r.test(label)); if (o) I = o[1];
+  return <span className={'ctile' + (sm ? ' sm' : '') + (xs ? ' xs' : '')} style={{ '--c': col }}><I size={xs ? 13 : sm ? 15 : 17} strokeWidth={1.8} /></span>;
+};
 
-function QuickAdd({ st, addTx, setSettings, setToast, open, compact }) {
+function QuickAdd({ st, addTx, setSettings, setToast, open, compact, v3 }) {
   const q = st.settings.quick || {};
   const [m, setM] = useState('');
   const [cat, setCat] = useState(q.cat && CATS_VIE.includes(q.cat) ? q.cat : 'alimentation');
@@ -2101,6 +2220,24 @@ function QuickAdd({ st, addTx, setSettings, setToast, open, compact }) {
     </div>
   );
 
+  if (v3) return (
+    <div className="card c3 qa3">
+      <div className="c3-h"><h3>Noter une dépense</h3><span className="muted">Entrée pour valider</span></div>
+      <div className="c3-b">
+        {habits.length > 0 && <div className="chips3">
+          {habits.filter((h) => habitToday(h) || habitLogged(st, h)).map((h) => { const done = habitLogged(st, h); return <button key={h.id} className={'chip3' + (done ? ' done' : '')} title={done ? 'Déjà noté aujourd’hui · cliquer pour en ajouter un autre' : `${CATS[h.cat]} · ${JOURS[h.jours] || ''}`} onClick={() => logHabit(h)}>{done ? <Check size={14} /> : React.createElement(catIcon(h.cat), { size: 14, strokeWidth: 1.8 })}{h.label}<b className="num">{fmt(h.montant)}</b></button>; })}
+          <button className="chip3 ghost" onClick={() => open('habits')}><Settings size={13} />Gérer</button>
+        </div>}
+        {!habits.length && <button className="chip3 ghost" onClick={() => open('habits')}><Plus size={13} />Ajouter mes habitudes (petit-déj, transport…)</button>}
+        <div className="qa3-row">
+          <label className="qa3-amt"><input ref={ref} className="num" type="number" inputMode="numeric" placeholder="0" value={m} onChange={(e) => setM(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} /><span>FCFA</span></label>
+          <Sel className="lg" value={cat} onChange={(e) => pick(e.target.value)}>{CATS_VIE.map((c) => <option key={c} value={c}>{CATS[c]}</option>)}</Sel>
+          <Sel className="lg" value={acc} onChange={(e) => setAcc(e.target.value)}>{st.accounts.map((a) => <option key={a.id} value={a.id}>{a.nom}</option>)}</Sel>
+          <button className="btn p lg" onClick={add}><Plus size={16} />Ajouter</button>
+        </div>
+      </div>
+    </div>
+  );
   if (compact) return (
     <div className="card rail-card qbC">
       <div className="rc-h"><h3>Saisie express</h3>{bt > 0 && <span className={'qb-today' + (spentToday > perDay ? ' over' : '')} title="Dépensé aujourd'hui / possible aujourd'hui">Auj. {fmt(spentToday)} / {fmt(perDay)}</span>}</div>
@@ -2367,8 +2504,8 @@ function TriModal({ st, updateTx, onClose }) {
 }
 
 const KEYS = [
-  [['Ctrl', 'N'], 'Nouvelle opération'], [['Ctrl', 'B'], 'Virement entre comptes'], [['Ctrl', 'M'], 'Coller / importer un SMS'], [['Ctrl', 'J'], 'Ajuster les soldes réels'], [['Ctrl', 'P'], 'Puis-je me le permettre ?'],
-  [['Ctrl', 'K'], 'Rechercher une opération'], [['Ctrl', '1…9'], 'Changer de page'], [['Ctrl', '0'], 'Opérations'], [['Ctrl', 'V'], 'Coller un SMS (hors champ)'],
+  [['Ctrl', 'N'], 'Nouvelle dépense'], [['Ctrl', 'B'], 'Virement entre comptes'], [['Ctrl', 'M'], 'Coller / importer un SMS'], [['Ctrl', 'J'], 'Ajuster les soldes réels'], [['Ctrl', 'P'], 'Puis-je me le permettre ?'],
+  [['Ctrl', 'K'], 'Rechercher une opération'], [['Ctrl', '1…5'], 'Aujourd’hui, Argent, Budget, À venir, Futur'], [['Ctrl', '6'], 'Paramètres'], [['Ctrl', 'V'], 'Coller un SMS (hors champ)'],
   [['Ctrl', 'L'], 'Verrouiller'], [['F1'], 'Cette aide'], [['Entrée'], 'Valider une fenêtre'], [['Échap'], 'Fermer'],
 ];
 const KeysList = () => <div className="kbd-list">{KEYS.map(([k, l]) => <span key={l}>{k.map((x, i) => <React.Fragment key={x}>{i > 0 && '+'}<kbd>{x}</kbd></React.Fragment>)} {l}</span>)}</div>;
@@ -2538,26 +2675,14 @@ function SavPlanModal({ st, bal, onClose, onOk }) {
   );
 }
 
-function CheckUp({ st, bal, set, setSettings, open, setPage, upsert, setToast }) {
+function CheckUp(ctx) {
+  const { st, bal, setSettings } = ctx;
   const list = checkup(st, bal);
   const score = Math.max(0, 100 - list.reduce((s, x) => s + (x.sev === 3 ? 18 : x.sev === 2 ? 9 : 4), 0));
   const ignore = (k) => setSettings({ checkupOff: { ...(st.settings.checkupOff || {}), [k]: true } });
   const reset = () => setSettings({ checkupOff: {} });
   const nOff = Object.keys(st.settings.checkupOff || {}).length;
-  const run = (x) => {
-    if (x.act === 'prolonger') { upsert('items', { ...x.item, fin: null }); setToast({ msg: `${x.item.label} prolongé sans date de fin`, prev: st }); }
-    else if (x.act === 'recurrent') { upsert('items', { ...x.item, fin: null, every: x.item.cat === 'factures' ? 2 : 1 }); setToast({ msg: `${x.item.label} est maintenant récurrent`, prev: st }); }
-    else if (x.act === 'habits') open('habits');
-    else if (x.act === 'relance') open('relance', x.creance);
-    else if (x.act === 'plan') open('savplan');
-    else if (x.act === 'hyp') { set({ hypothese: 'moyen' }); setToast({ msg: 'Hypothèse « Moyenne » activée', prev: st }); }
-    else if (x.act === 'tri') open('tri');
-    else if (x.act === 'adjust') open('adjust', { accountId: x.account.id });
-    else if (x.act === 'budgets') setPage('budgets');
-    else if (x.act === 'backup') setSettings({ backup: true });
-  };
-  const LBL = { prolonger: 'Prolonger', recurrent: 'Rendre récurrent', habits: 'Ajuster', relance: 'Relancer', plan: 'Planifier', hyp: 'Passer en Moyenne', tri: 'Trier', adjust: 'Corriger', budgets: 'Voir', backup: 'Activer' };
-  const IC = { r: AlertTriangle, o: Clock, p: Sparkles };
+  const run = ckRunner(ctx); const LBL = CK_LBL;
   return (
     <>
       <Top title="Check-up" sub="Ce qui mérite ton attention dans tes finances">{nOff > 0 && <button className="btn s" onClick={reset}><EyeOff size={15} />Réafficher {nOff} point{nOff > 1 ? 's' : ''} ignoré{nOff > 1 ? 's' : ''}</button>}</Top>
@@ -2568,13 +2693,13 @@ function CheckUp({ st, bal, set, setSettings, open, setPage, upsert, setToast })
             <p>{list.length ? `${list.length} point${list.length > 1 ? 's' : ''} détecté${list.length > 1 ? 's' : ''}, du plus important au moins important. Chacun se corrige en un clic.` : 'Rien à signaler : flux, budgets, créances et objectifs sont en ordre.'}</p>
             <div className="ck-legend"><span><i className="r" />Urgent</span><span><i className="o" />À faire</span><span><i className="p" />Conseil</span></div></div>
         </div>
-        <div className="ck-list">{list.map((x) => { const I = IC[x.tone] || Info; return (
+        <div className="ck-list">{list.map((x) => (
           <div className={'ck-item ' + x.tone} key={x.key}>
-            <span className="ck-ic"><I size={17} /></span>
+            <ToneTile t={x.tone} />
             <div className="ck-t"><b>{x.title}</b><span>{x.text}</span></div>
             <button className="btn p sm" onClick={() => run(x)}>{LBL[x.act] || 'Voir'}</button>
             <button className="ib" title="Ignorer" onClick={() => ignore(x.key)}><X size={15} /></button>
-          </div>); })}
+          </div>))}
           {!list.length && <div className="card"><div className="ok-state" style={{ padding: 40 }}><ShieldCheck size={22} />Tout est en ordre</div></div>}
         </div>
       </div>
