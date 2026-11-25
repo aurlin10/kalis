@@ -64,6 +64,7 @@ export const defaultState = () => ({
   favoris: [],
   scenarios: [],
   settings: { notif: true, backup: true, backupDir: null, pinHash: null, autoUpdate: true, autostart: false, habits: DEFAULT_HABITS },
+  envelopes: [],
   hypothese: 'bas', // bas | moyen | haut  (revenus variables)
   inclureIncertains: true,
   horizon: '2027-12',
@@ -215,8 +216,8 @@ export const balances = (st) => {
   const epargne = Object.values(goals).reduce((s, v) => s + v, 0);
   return { dispo, goals, epargne, total: dispo + epargne, accounts: acc, comptes };
 };
-export const spentCat = (st, key, cat) => st.transactions.filter((t) => t.kind === 'out' && t.cat === cat && t.date.startsWith(key)).reduce((s, t) => s + t.montant, 0);
-export const spentVie = (st, key) => st.transactions.filter((t) => t.kind === 'out' && CATS_VIE.includes(t.cat) && t.date.startsWith(key)).reduce((s, t) => s + t.montant, 0);
+export const spentCat = (st, key, cat) => st.transactions.filter((t) => t.kind === 'out' && !t.envelopeId && t.cat === cat && t.date.startsWith(key)).reduce((s, t) => s + t.montant, 0);
+export const spentVie = (st, key) => st.transactions.filter((t) => t.kind === 'out' && !t.envelopeId && CATS_VIE.includes(t.cat) && t.date.startsWith(key)).reduce((s, t) => s + t.montant, 0);
 
 // ---------- Projection ----------
 export const projection = (st, today = new Date()) => {
@@ -232,7 +233,9 @@ export const projection = (st, today = new Date()) => {
     const key = addMonths(cur, i);
     const p = i === 0 ? [...overdue(st, cur), ...pending(st, key)] : pending(st, key);
     const entrees = p.filter((x) => x.kind === 'in').reduce((s, x) => s + x.amount, 0);
-    const charges = p.filter((x) => x.kind === 'out').reduce((s, x) => s + x.amount, 0);
+    // Enveloppes : ce qui reste à dépenser dans l'enveloppe du mois est réservé
+    const env = (st.envelopes || []).filter((e) => e.mois === key).reduce((s, e) => s + Math.max(0, +e.montant - envSpent(st, e.id)), 0);
+    const charges = p.filter((x) => x.kind === 'out').reduce((s, x) => s + x.amount, 0) + env;
     let epargne = 0;
     for (const x of p.filter((x) => x.kind === 'save')) { epargne += x.amount; if (x.goalId in g) g[x.goalId] += x.amount; }
     // Entrées versées directement sur un objectif (ex. cagnotte de tontine liée)
@@ -374,3 +377,64 @@ export const parseSMS = (raw, accounts = []) => {
 };
 
 export const prevMonth = (d = new Date()) => addMonths(mkey(d), -1);
+
+
+// ---------- Enveloppes ----------
+export const envSpent = (st, id) => st.transactions.filter((t) => t.envelopeId === id && t.kind === 'out').reduce((s, t) => s + (+t.montant || 0), 0);
+
+// ---------- Série « dans le budget » ----------
+// Un jour est réussi si les dépenses courantes (hors enveloppes) restent sous la limite du jour (budget du mois ÷ jours).
+export const dayLimit = (st, key) => budgetTotal(st) / daysIn(key);
+export const streakInfo = (st, now = new Date()) => {
+  const bt = budgetTotal(st); if (!bt) return null;
+  const byDay = {}; for (const t of st.transactions) if (t.kind === 'out' && !t.envelopeId && CATS_VIE.includes(t.cat)) byDay[t.date] = (byDay[t.date] || 0) + (+t.montant || 0);
+  const start = st.dateInitiale || todayISO(); const today = todayISO();
+  const days = []; for (let d = new Date(start + 'T12:00:00'); ; d.setDate(d.getDate() + 1)) { const k = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; if (k > today) break; const lim = dayLimit(st, k.slice(0, 7)); days.push({ d: k, v: byDay[k] || 0, lim, ok: (byDay[k] || 0) <= lim }); }
+  let cur = 0; const past = days.filter((x) => x.d < today); for (let i = past.length - 1; i >= 0 && past[i].ok; i--) cur++;
+  let best = 0, run = 0; for (const x of past) { run = x.ok ? run + 1 : 0; best = Math.max(best, run); }
+  const td = days.find((x) => x.d === today);
+  return { cur, best, today: td, last: days.slice(-14), okRate: past.length ? past.filter((x) => x.ok).length / past.length : 0 };
+};
+
+// ---------- Revenus professionnels ----------
+export const PRO_CATS = ['salaire', 'freelance'];
+export const proSource = (t) => (t.label || 'Revenu').replace(/\s*\(partiel\)$/, '').trim();
+export const proIncome = (st, key) => { const out = {}; for (const t of st.transactions) if (t.kind === 'in' && PRO_CATS.includes(t.cat) && t.date.startsWith(key)) { const k = proSource(t); out[k] = (out[k] || 0) + (+t.montant || 0); } return out; };
+
+// ---------- Plan d'épargne des objectifs ----------
+export const tontineFor = (st, g) => st.tontines.filter((t) => t.goalId === g.id && !st.done[`tr:${t.id}:${addMonths(t.debut, t.position - 1)}`] && addMonths(t.debut, t.position - 1) <= g.echeance).reduce((x, t) => x + t.cotisation * t.participants, 0);
+export const savingsPlan = (st, bal, now = new Date()) => {
+  const nk = addMonths(mkey(now), 1);
+  return st.goals.filter(isGoalActive).sort((a, b) => a.echeance.localeCompare(b.echeance)).map((g) => {
+    const v = bal.goals[g.id] || 0; const ton = tontineFor(st, g); const reste = Math.max(0, +g.montant - v - ton);
+    const n = Math.max(1, monthDiff(nk, g.echeance) + 1);
+    const prog = st.items.filter((i) => i.kind === 'save' && i.goalId === g.id && (!i.fin || i.fin >= nk)).reduce((s, i) => s + (+i.montant || 0), 0);
+    return { g, v, ton, reste, n, need: reste > 0 ? Math.ceil(reste / n / 500) * 500 : 0, prog };
+  });
+};
+// Capacité d'épargne mensuelle moyenne sur les 3 prochains mois : revenus prévus − charges − budgets − épargne déjà programmée
+export const saveCapacity = (st, now = new Date()) => {
+  const ks = [1, 2, 3].map((i) => addMonths(mkey(now), i));
+  const v = ks.map((k) => { const occ = occurrences(st, k); const sum = (f) => occ.filter(f).reduce((s, o) => s + o.amount, 0); return sum((o) => o.kind === 'in' && !o.goalId) - sum((o) => o.kind === 'out') - budgetTotal(st); });
+  return Math.round(v.reduce((s, x) => s + x, 0) / v.length);
+};
+
+// ---------- Check-up ----------
+export const checkup = (st, bal, now = new Date()) => {
+  const cur = mkey(now); const today = todayISO(); const out = [];
+  const dis = st.settings?.checkupOff || {};
+  const add = (o) => { if (!dis[o.key]) out.push(o); };
+  for (const i of st.items) if (i.kind === 'in' && i.fin && i.fin !== i.debut && i.fin >= cur && monthDiff(cur, i.fin) <= 6) add({ key: `fin:${i.id}`, tone: 'r', sev: 3, title: `${i.label} s'arrête en ${mLabel(i.fin, true)}`, text: `${fmt(i.montant)} FCFA/mois en moins ensuite dans ta projection.`, act: 'prolonger', item: i });
+  for (const i of st.items) if (i.kind === 'out' && i.debut === i.fin && ['factures', 'abonnements', 'logement'].includes(i.cat) && !st.items.some((j) => j !== i && j.label === i.label && (!j.fin || j.fin > i.fin))) add({ key: `once:${i.id}`, tone: 'o', sev: 2, title: `${i.label} n'est prévu qu'une fois`, text: `Ce type de charge revient en général : la projection l'oublie après ${mLabel(i.fin, true)}.`, act: 'recurrent', item: i });
+  const hm = {}; for (const h of st.settings?.habits || []) { const n = (() => { const [y, m] = cur.split('-').map(Number); let c = 0; for (let d = 1; d <= new Date(y, m, 0).getDate(); d++) { const w = new Date(y, m - 1, d).getDay(); const j = h.jours || 'tous'; if (j === 'tous' || (j === 'semaine' && w >= 1 && w <= 5) || (j === 'weekend' && (w === 0 || w === 6)) || (j === 'samedi' && w === 6) || (j === 'dimanche' && w === 0)) c++; } return c; })(); hm[h.cat] = (hm[h.cat] || 0) + (+h.montant || 0) * n; }
+  for (const [c, v] of Object.entries(hm)) if (+st.budgets[c] > 0 && v > +st.budgets[c]) add({ key: `hab:${c}:${cur}`, tone: 'o', sev: 2, title: `Tes habitudes dépassent le budget ${CATS[c]}`, text: `Elles coûtent ≈ ${fmt(v)} FCFA ce mois-ci pour un budget de ${fmt(st.budgets[c])}.`, act: 'habits' });
+  for (const c of st.creances) for (const o of creanceOccs(c)) if (!st.done[o.ref] && o.date < today && c.sens === 'in') add({ key: `cr:${o.ref}`, tone: 'o', sev: 2, title: `${c.nom} te doit ${fmt(o.amount)} FCFA`, text: `Remboursement attendu le ${dLabel(o.date)}, en retard de ${Math.round((new Date(today) - new Date(o.date)) / 864e5)} jours.`, act: 'relance', creance: c });
+  for (const g of st.goals.filter(isGoalActive)) { const v = bal.goals[g.id] || 0; const ton = tontineFor(st, g); const prog = st.items.some((i) => i.kind === 'save' && i.goalId === g.id && (!i.fin || i.fin >= cur)); if (!prog && v + ton < +g.montant) add({ key: `goal:${g.id}`, tone: 'p', sev: 2, title: `${g.nom} n'a pas d'épargne programmée`, text: `Il manque ${fmt(+g.montant - v - ton)} FCFA d'ici ${mLabel(g.echeance, true)}.`, act: 'plan', goal: g }); }
+  const varItems = st.items.filter((i) => i.kind === 'in' && i.variable && isActive(i, cur, st));
+  if ((st.hypothese || 'bas') === 'bas' && varItems.length) { const prev = addMonths(cur, -1); const got = varItems.filter((i) => { const r = st.done[`i:${i.id}:${cur}`] || st.done[`i:${i.id}:${prev}`]; const tx = typeof r === 'string' && st.transactions.find((t) => t.id === r); return tx && tx.montant > +i.min * 1.05; }); if (got.length) add({ key: `hyp:${cur}`, tone: 'p', sev: 1, title: 'Ta projection est très prudente', text: `${got.map((i) => i.label).join(', ')} rapporte${got.length > 1 ? 'nt' : ''} plus que le minimum compté. Passe en hypothèse « Moyenne » pour une vision plus juste.`, act: 'hyp' }); }
+  const nVie = st.transactions.filter((t) => t.kind === 'out' && t.cat === 'vie' && t.date.startsWith(cur)).length; if (nVie >= 5) add({ key: `tri:${cur}`, tone: 'p', sev: 1, title: `${nVie} dépenses en Vie courante à trier`, text: 'Les classer rend tes budgets et ton bilan plus parlants.', act: 'tri' });
+  for (const a of st.accounts) if ((bal.accounts[a.id] || 0) < 0) add({ key: `neg:${a.id}:${today}`, tone: 'r', sev: 3, title: `${a.nom} est négatif`, text: `${fmt(bal.accounts[a.id])} FCFA : une opération a sûrement été oubliée.`, act: 'adjust', account: a });
+  for (const c of CATS_VIE) if (+st.budgets[c] > 0 && spentCat(st, cur, c) > +st.budgets[c]) add({ key: `over:${c}:${cur}`, tone: 'r', sev: 2, title: `Budget ${CATS[c]} dépassé`, text: `${fmt(spentCat(st, cur, c))} dépensés pour ${fmt(st.budgets[c])}.`, act: 'budgets' });
+  if (st.settings?.backup === false) add({ key: 'backup', tone: 'o', sev: 2, title: 'La sauvegarde automatique est désactivée', text: 'En cas de problème sur le PC, tes données seraient perdues.', act: 'backup' });
+  return out.sort((a, b) => b.sev - a.sev);
+};

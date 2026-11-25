@@ -4,7 +4,7 @@ import {
   LayoutGrid, LineChart as LineIc, Target, Repeat, Users, HandCoins, List, Settings, Plus, Check, Pencil, Trash2, X,
   ArrowDownLeft, ArrowUpRight, PiggyBank, Sun, Moon, Monitor, AlertTriangle, Info, Download, Upload, RotateCcw, Undo2, Wallet, CalendarDays,
   ArrowLeftRight, BarChart3, FlaskConical, Lock, Bell, Star, FileSpreadsheet, FileText, FolderOpen, RefreshCw, Gauge, PartyPopper, KeyRound, ShieldCheck, Smartphone, Keyboard, Power, Delete, Sparkles, Search, Trophy, Archive, History, CheckCheck, Clock, Banknote, ArchiveRestore, Zap, Tag, CalendarRange, UtensilsCrossed, Bus, HeartPulse, ShoppingBag, Ticket, CornerDownLeft, ChevronDown,
-  MessageCircle, Scale, ClipboardPaste, ListChecks, Copy, Send, Command, FileBarChart, PanelLeftClose, PanelLeftOpen, Palette, Database,
+  MessageCircle, Scale, ClipboardPaste, ListChecks, Copy, Send, Command, FileBarChart, PanelLeftClose, PanelLeftOpen, Palette, Database, Flame, Stethoscope, Briefcase, Gift, Calculator, BadgeCheck, EyeOff, Wand2,
 } from 'lucide-react';
 import {
   AreaChart, Area, LineChart, Line, BarChart, Bar, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine,
@@ -13,7 +13,7 @@ import logoUrl from '../build/logo.png';
 import {
   defaultState, balances, projection, pending, upcoming, occurrences, mkey, addMonths, mLabel, dLabel, fmt, fcfa, short, uid,
   CATS, CATS_IN, CATS_OUT, CATS_VIE, GOAL_COLORS, goalReach, monthDiff, todayISO, isActive, amountOf, spentVie, spentCat,
-  migrate, fixCat, budgetTotal, CATS_DEBT, accName, creanceOccs, monthStats, monthPlan, applyScenario, SCEN_TYPES, EVENT_PRESETS, daysIn, isGoalActive, applyCustomCats, amountSuggestions, weeklySummary, weekKey, paidMap, parseSMS, prevMonth, JOURS, habitToday, habitsMonthly, habitLogged, budgetTotal as bTotal, dateIn,
+  migrate, fixCat, budgetTotal, CATS_DEBT, accName, creanceOccs, monthStats, monthPlan, applyScenario, SCEN_TYPES, EVENT_PRESETS, daysIn, isGoalActive, applyCustomCats, amountSuggestions, weeklySummary, weekKey, paidMap, parseSMS, prevMonth, JOURS, habitToday, habitsMonthly, habitLogged, budgetTotal as bTotal, dateIn, envSpent, streakInfo, proIncome, savingsPlan, saveCapacity, checkup,
 } from './data.js';
 import { reportHTML } from './report.js';
 
@@ -94,6 +94,7 @@ export default function App() {
       if (/^[0-9]$/.test(k) && !e.shiftKey) { e.preventDefault(); setModal(null); setPage(k === '0' ? 'ops' : PG[+k - 1]); return; }
       if (k === 'n') { e.preventDefault(); open('tx'); }
       else if (k === 'j') { e.preventDefault(); open('adjust'); }
+      else if (k === 'p') { e.preventDefault(); open('afford'); }
       else if (k === 'm') { e.preventDefault(); open('sms', ''); }
       else if (k === 'k') { e.preventDefault(); setModal(null); setPage('ops'); setFocusSearch((x) => x + 1); }
       else if (k === '/' || e.key === '?') { e.preventDefault(); open('keys'); }
@@ -152,7 +153,8 @@ export default function App() {
     else if (d.getDay() === 1 && d.getHours() < 12) { at = new Date(d.getTime() - 864e5); at.setHours(23, 59); target = weekKey(at); }
     if (!force && (!target || st.lastWeekly === target)) return;
     const w = weeklySummary(st, force ? d : at);
-    const body = [`Dépensé cette semaine : ${fmt(w.spent)} FCFA`, w.bt ? `Reste sur tes budgets du mois : ${fmt(w.budgetLeft)} FCFA` : null, w.next.length ? `7 prochains jours : ${w.next.length} échéance${w.next.length > 1 ? 's' : ''} (−${fmt(w.nextOut)} / +${fmt(w.nextIn)})` : 'Aucune échéance dans les 7 prochains jours'].filter(Boolean).join('\n');
+    const sk = streakInfo(st);
+    const body = [`Dépensé cette semaine : ${fmt(w.spent)} FCFA`, sk ? `Série dans le budget : ${sk.cur} jour(s) · record ${sk.best}` : null, w.bt ? `Reste sur tes budgets du mois : ${fmt(w.budgetLeft)} FCFA` : null, w.next.length ? `7 prochains jours : ${w.next.length} échéance${w.next.length > 1 ? 's' : ''} (−${fmt(w.nextOut)} / +${fmt(w.nextIn)})` : 'Aucune échéance dans les 7 prochains jours'].filter(Boolean).join('\n');
     try { new Notification('Kalis · Bilan de la semaine', { body }); } catch (e) {}
     if (!force) set({ lastWeekly: target });
   };
@@ -197,13 +199,14 @@ export default function App() {
     const over = CATS_VIE.filter((c) => +st.budgets[c] > 0 && spentCat(st, cur, c) > +st.budgets[c]).length;
     const late = st.creances.flatMap((c) => creanceOccs(c)).filter((o) => !st.done[o.ref] && o.date < t).length;
     const neg = st.accounts.filter((a) => (bal.accounts[a.id] || 0) < 0).length;
-    return { dash: due ? [due, 'warn'] : null, budgets: over ? [over, 'r'] : null, cre: late ? [late, 'warn'] : null, comptes: neg ? [neg, 'r'] : null };
+    const ck = checkup(st, bal).filter((x) => x.sev >= 2).length;
+    return { check: ck ? [ck, 'warn'] : null, dash: due ? [due, 'warn'] : null, budgets: over ? [over, 'r'] : null, cre: late ? [late, 'warn'] : null, comptes: neg ? [neg, 'r'] : null };
   }, [st, bal]);
   const NAV = [
-    ['Pilotage', [['dash', "Vue d'ensemble", LayoutGrid], ['bilan', 'Bilan mensuel', BarChart3], ['proj', 'Projection', LineIc], ['scen', 'Scénarios', FlaskConical], ['goals', 'Objectifs', Target]]],
+    ['Pilotage', [['dash', "Vue d'ensemble", LayoutGrid], ['check', 'Check-up', Stethoscope], ['bilan', 'Bilan mensuel', BarChart3], ['proj', 'Projection', LineIc], ['scen', 'Scénarios', FlaskConical], ['goals', 'Objectifs', Target]]],
     ['Données', [['comptes', 'Comptes', Smartphone], ['budgets', 'Budgets', Gauge], ['flux', 'Flux récurrents', Repeat], ['tont', 'Tontines', Users], ['cre', 'Créances & dettes', HandCoins], ['ops', 'Opérations', List]]],
   ];
-  const PAGES = { dash: Dashboard, bilan: Bilan, proj: Projection, scen: Scenarios, goals: Goals, comptes: Comptes, budgets: Budgets, flux: Flux, tont: Tontines, cre: Creances, ops: Operations, set: Params };
+  const PAGES = { dash: Dashboard, check: CheckUp, bilan: Bilan, proj: Projection, scen: Scenarios, goals: Goals, comptes: Comptes, budgets: Budgets, flux: Flux, tont: Tontines, cre: Creances, ops: Operations, set: Params };
   const Page = PAGES[page];
 
   if (locked && st.settings.pinHash) return <ThemeCtx.Provider value={PAL[eff]}><LockScreen hash={st.settings.pinHash} len={+st.settings.pinLen || 0} onUnlock={(l) => { if (!st.settings.pinLen && l) setSettings({ pinLen: l }); setLocked(false); }} /></ThemeCtx.Provider>;
@@ -271,6 +274,9 @@ export default function App() {
       {modal?.type === 'relance' && <RelanceModal c={modal.data} st={st} onClose={close} onSent={(tel) => { upsert('creances', { ...modal.data, tel: tel || modal.data.tel, lastRelance: todayISO() }); close(); }} />}
       {modal?.type === 'tri' && <TriModal st={st} updateTx={updateTx} onClose={close} />}
       {modal?.type === 'keys' && <KeysModal onClose={close} />}
+      {modal?.type === 'afford' && <AffordModal init={modal.data} st={st} bal={bal} onClose={close} onItem={(it) => { upsert('items', it); setToast({ msg: `${it.label} prévue en ${mLabel(it.debut, true)} : la projection en tient compte`, prev: st }); close(); }} onEnvelope={(e) => { set({ envelopes: [...(st.envelopes || []), e] }); setToast({ msg: `Enveloppe « ${e.nom} » créée`, prev: st }); setPage('budgets'); close(); }} />}
+      {modal?.type === 'envelope' && <EnvelopeModal e={modal.data} st={st} onClose={close} onOk={(e) => { const l = st.envelopes || []; set({ envelopes: l.some((x) => x.id === e.id) ? l.map((x) => (x.id === e.id ? e : x)) : [...l, e] }); close(); }} onDelete={(id) => { setToast({ msg: 'Enveloppe supprimée', prev: st }); setSt((s) => ({ ...s, envelopes: (s.envelopes || []).filter((x) => x.id !== id), transactions: s.transactions.map((t) => (t.envelopeId === id ? { ...t, envelopeId: undefined } : t)) })); close(); }} />}
+      {modal?.type === 'savplan' && <SavPlanModal st={st} bal={bal} onClose={close} onOk={(items) => { const ids = new Set(items.map((i) => i.goalId)); setSt((s) => ({ ...s, items: s.items.filter((i) => !(i.kind === 'save' && ids.has(i.goalId))).concat(items) })); setToast({ msg: `${items.length} versement(s) programmé(s) · ${fmt(items.reduce((a, i) => a + i.montant, 0))} FCFA / mois`, prev: st }); close(); }} />}
       {modal?.type === 'habits' && <HabitsModal st={st} onClose={close} onOk={(habits, applyB) => { const prev = st; setSt((s) => { const ns = { ...s, settings: { ...s.settings, habits } }; if (applyB) { const nb = { ...s.budgets }; for (const [c, v] of Object.entries(applyB)) nb[c] = v; ns.budgets = nb; } return ns; }); setToast({ msg: applyB ? 'Habitudes enregistrées · budgets ajustés' : 'Habitudes enregistrées', prev }); close(); }} />}
       {modal?.type === 'creance' && <CreanceModal c={modal.data} st={st} onClose={close} onOk={(c, mv) => { saveCreance(c, mv); close(); }} />}
     </div>
@@ -528,12 +534,16 @@ function Dashboard({ st, bal, rows, open, setPage, addTx, setSettings, setToast,
   const dispoV = accSel ? bal.accounts[acc] || 0 : bal.dispo;
   const over = ref > 0 && vCur > ref;
   const L = PER_L[per];
+  const checkN = checkup(st, bal).filter((x) => x.sev >= 2).length;
   const QA = [
     [Plus, 'Dépense', 'Ctrl+N', () => open('tx'), 'p'],
     [ArrowLeftRight, 'Virement', 'Ctrl+B', () => open('tx', { kind: 'move' }), 's'],
     [ClipboardPaste, 'Coller un SMS', 'Ctrl+M', () => open('sms', ''), 'g'],
     [Scale, 'Ajuster soldes', 'Ctrl+J', () => open('adjust'), 'o'],
+    [Calculator, 'Puis-je me le permettre ?', 'Ctrl+P', () => open('afford'), 's'],
+    [Stethoscope, 'Check-up', checkN ? `${checkN} point${checkN > 1 ? 's' : ''}` : 'Tout va bien', () => setPage('check'), checkN ? 'r' : 'g'],
   ];
+  const envNow = (st.envelopes || []).filter((e) => e.mois >= addMonths(cur, -1) && e.mois <= addMonths(cur, 1));
 
   return (
     <>
@@ -596,8 +606,8 @@ function Dashboard({ st, bal, rows, open, setPage, addTx, setSettings, setToast,
                     <XAxis dataKey="l" {...axisOf(c)} interval={0} tick={{ fill: c.axis, fontSize: 11.5 }} />
                     <YAxis {...axisOf(c)} width={44} tickFormatter={(v) => short(v)} />
                     <Tooltip content={<Tip />} cursor={{ fill: c.grid }} />
-                    {ref > 0 && <ReferenceLine y={ref} stroke="var(--ink)" strokeDasharray="5 4" label={{ value: `Budget ${short(ref)}`, position: 'right', fill: 'var(--ink2)', fontSize: 11.5 }} />}
-                    {avg > 0 && <ReferenceLine y={avg} stroke={c.primary} strokeOpacity={0.45} label={{ value: `Moy. ${short(avg)}`, position: 'right', fill: c.primary, fontSize: 11.5 }} />}
+                    {ref > 0 && <ReferenceLine y={ref} stroke="var(--ink)" strokeDasharray="5 4" label={{ value: `Budget ${short(ref)}`, position: 'right', fill: 'var(--ink2)', fontSize: 11.5, dy: avg > ref ? 8 : -8 }} />}
+                    {avg > 0 && <ReferenceLine y={avg} stroke={c.primary} strokeOpacity={0.45} label={{ value: `Moy. ${short(avg)}`, position: 'right', fill: c.primary, fontSize: 11.5, dy: avg > ref ? -8 : 8 }} />}
                     <Bar dataKey="v" name="Dépensé" radius={[6, 6, 0, 0]} maxBarSize={46}>
                       {bars.map((b, i) => <Cell key={i} fill={b.cur ? c.primary : b.na ? c.track : ref && b.v > ref ? 'var(--neg-soft2)' : c.track2 || '#CDD1E0'} />)}
                     </Bar>
@@ -636,6 +646,8 @@ function Dashboard({ st, bal, rows, open, setPage, addTx, setSettings, setToast,
               <div className="rc-h"><h3>Actions rapides</h3><button className="ib" title="Raccourcis (F1)" onClick={() => open('keys')}><Keyboard size={15} /></button></div>
               <div className="qaB">{QA.map(([I, l, k, fn, tn]) => <button key={l} onClick={fn}><span className={'chip-ic ' + tn}><I size={16} /></span><b>{l}</b><kbd>{k}</kbd></button>)}</div>
             </div>
+            <StreakCard st={st} />
+            {envNow.length > 0 && <div className="card rail-card"><div className="rc-h"><h3>Enveloppes</h3><button className="btn s sm" onClick={() => setPage('budgets')}>Voir</button></div><div style={{ display: 'grid', gap: 10 }}>{envNow.map((e) => <EnvelopeCard key={e.id} e={e} st={st} open={open} compact />)}</div></div>}
             <QuickAdd st={st} addTx={addTx} setSettings={setSettings} setToast={setToast} open={open} compact />
             <div className="card rail-card">
               <div className="rc-h"><h3>À surveiller</h3>{alerts.length > 0 && <span className="badge">{alerts.length}</span>}</div>
@@ -714,7 +726,7 @@ function Projection({ st, set, rows, exportPDF, doExcel }) {
 }
 
 // ================= OBJECTIFS =================
-function Goals({ st, bal, rows, open, remove, addTx, upsert }) {
+function Goals({ st, bal, rows, open, remove, addTx, upsert, setSettings }) {
   const c = useC(); const axis = axisOf(c);
   const cur = mkey(new Date());
   const [fund, setFund] = useState(null);
@@ -722,8 +734,9 @@ function Goals({ st, bal, rows, open, remove, addTx, upsert }) {
   const data = rows.map((r) => { const o = { label: r.label, long: mLabel(r.key, true) }; st.goals.forEach((g) => { o[g.id] = r.goals[g.id] || 0; }); return o; });
   return (
     <>
-      <Top title="Objectifs" sub="Épargne affectée à tes projets">{st.goals.length > 0 && <button className="btn s" onClick={() => setXfer({ from: 'dispo', to: st.goals[0].id })}><Repeat size={15} />Transfert</button>}<button className="btn p" onClick={() => open('goal')}><Plus size={16} />Nouvel objectif</button></Top>
+      <Top title="Objectifs" sub="Épargne affectée à tes projets"><button className="btn s" onClick={() => open('savplan')}><Wand2 size={15} />Plan d'épargne</button>{st.goals.length > 0 && <button className="btn s" onClick={() => setXfer({ from: 'dispo', to: st.goals[0].id })}><Repeat size={15} />Transfert</button>}<button className="btn p" onClick={() => open('goal')}><Plus size={16} />Nouvel objectif</button></Top>
       <div className="content">
+        <ProIncomeCard st={st} setSettings={setSettings} />
         {!st.goals.length ? <div className="card"><Empty icon={Target} title="Aucun objectif pour l'instant" text="Définis un montant cible et une échéance, puis programme une épargne mensuelle." action={<button className="btn p" onClick={() => open('goal')}><Plus size={16} />Créer un objectif</button>} /></div> : (
           <>
             <div className="grid g3 goals-grid">
@@ -1319,7 +1332,7 @@ function TxModal({ init, st, bal, goals, onClose, onOk, onFav }) {
       return onOk(withCover(list));
     }
     const label = t.label || (isG ? `${t.kind === 'save' ? 'Épargne' : 'Retrait'} ${goals.find((g) => g.id === t.goalId)?.nom}` : CATS[t.cat]);
-    const tx = { date: t.date, label, kind: t.kind, cat: isG ? 'epargne' : t.cat, montant: m, goalId: isG ? t.goalId : undefined, accountId: isG ? undefined : t.accountId };
+    const tx = { date: t.date, label, kind: t.kind, cat: isG ? 'epargne' : t.cat, montant: m, goalId: isG ? t.goalId : undefined, accountId: isG ? undefined : t.accountId, envelopeId: t.kind === 'out' && t.envelopeId ? t.envelopeId : undefined };
     onOk(init?.editId ? [tx] : withCover([tx]), fav ? { id: uid(), label, kind: t.kind, cat: tx.cat, montant: m, accountId: t.accountId, goalId: tx.goalId } : null);
   };
   return (
@@ -1344,6 +1357,7 @@ function TxModal({ init, st, bal, goals, onClose, onOk, onFav }) {
             : <Field label="Catégorie"><Sel className="inp" value={t.cat} onChange={(e) => u({ cat: e.target.value })}>{cats.map((c) => <option key={c} value={c}>{CATS[c]}</option>)}</Sel></Field>}
           <Field label="Libellé"><input className="inp" placeholder="Facultatif" value={t.label} onChange={(e) => u({ label: e.target.value })} /></Field>
           {!isG && <Field label={t.kind === 'in' ? 'Reçu sur' : 'Payé depuis'} span><AccPicker st={st} value={t.accountId} onChange={(v) => u({ accountId: v })} /></Field>}
+          {t.kind === 'out' && (st.envelopes || []).length > 0 && <Field label="Enveloppe" hint={t.envelopeId ? 'Hors budgets du mois' : 'Facultatif'} span><Sel className="inp" value={t.envelopeId || ''} onChange={(e) => u({ envelopeId: e.target.value || undefined })}><option value="">Aucune (budget du mois)</option>{(st.envelopes || []).map((e) => <option key={e.id} value={e.id}>{e.nom} · {mLabel(e.mois)} · reste {short(e.montant - envSpent(st, e.id))}</option>)}</Sel></Field>}
         </>)}
       </div>
       {deficit > 0 && (
@@ -1638,6 +1652,12 @@ function Budgets({ st, set, open, updateTx }) {
           <Kpi icon={Wallet} tone={total - spent < 0 ? 'r' : 'g'} k="Reste à dépenser" v={<span className={total - spent < 0 ? 'neg' : ''}>{fmt(total - spent)}</span>} f={isCur ? (daysLeft > 0 && total - spent > 0 ? `soit ${fmt((total - spent) / daysLeft)} FCFA par jour (${daysLeft} j)` : 'Budget du mois épuisé') : 'Mois terminé'} />
         </div>
 
+        <div className="env-sec">
+          <div className="env-sec-h"><div><h3>Enveloppes</h3><span>Des réserves pour tes événements, à part des budgets du mois</span></div>
+            <div style={{ display: 'flex', gap: 8 }}><button className="btn s sm" onClick={() => open('afford')}><Calculator size={14} />Puis-je me le permettre ?</button><button className="btn p sm" onClick={() => open('envelope')}><Plus size={14} />Nouvelle enveloppe</button></div></div>
+          {(st.envelopes || []).length ? <div className="env-grid">{[...(st.envelopes || [])].sort((x, y) => y.mois.localeCompare(x.mois)).map((e) => <EnvelopeCard key={e.id} e={e} st={st} open={open} />)}</div>
+            : <div className="env-empty"><Gift size={18} />Crée une enveloppe « Fêtes de fin d'année » pour tes 300 000 de décembre : ses dépenses ne feront pas exploser tes budgets.</div>}
+        </div>
         {offBudget.length > 0 && (
           <div className="alert warn mt" style={{ marginBottom: 0 }}>
             <div className="chip-ic"><AlertTriangle size={16} /></div>
@@ -2347,7 +2367,7 @@ function TriModal({ st, updateTx, onClose }) {
 }
 
 const KEYS = [
-  [['Ctrl', 'N'], 'Nouvelle opération'], [['Ctrl', 'B'], 'Virement entre comptes'], [['Ctrl', 'M'], 'Coller / importer un SMS'], [['Ctrl', 'J'], 'Ajuster les soldes réels'],
+  [['Ctrl', 'N'], 'Nouvelle opération'], [['Ctrl', 'B'], 'Virement entre comptes'], [['Ctrl', 'M'], 'Coller / importer un SMS'], [['Ctrl', 'J'], 'Ajuster les soldes réels'], [['Ctrl', 'P'], 'Puis-je me le permettre ?'],
   [['Ctrl', 'K'], 'Rechercher une opération'], [['Ctrl', '1…9'], 'Changer de page'], [['Ctrl', '0'], 'Opérations'], [['Ctrl', 'V'], 'Coller un SMS (hors champ)'],
   [['Ctrl', 'L'], 'Verrouiller'], [['F1'], 'Cette aide'], [['Entrée'], 'Valider une fenêtre'], [['Échap'], 'Fermer'],
 ];
@@ -2394,4 +2414,215 @@ function HabitsModal({ st, onClose, onOk }) {
       <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>« + autre » = ce qui n'est pas une habitude (provisions, marché, imprévus). Seules les catégories avec un montant sont modifiées.</div>
     </Modal>
   );
+}
+
+// =====================================================================
+// ================= 2.2 : prévoir, enveloppes, check-up… ==============
+// =====================================================================
+const VERDICT = {
+  ok: { t: 'Oui, sans risque', I: BadgeCheck, cls: 'ok' },
+  tight: { t: 'Oui, mais ce sera serré', I: AlertTriangle, cls: 'tight' },
+  no: { t: 'Pas maintenant', I: X, cls: 'no' },
+};
+function AffordModal({ init, st, bal, onClose, onItem, onEnvelope }) {
+  const c = useC();
+  const nk = addMonths(mkey(new Date()), 1);
+  const [m, setM] = useState(init?.montant ? String(init.montant) : '');
+  const [mois, setMois] = useState(init?.mois || nk);
+  const [label, setLabel] = useState(init?.label || '');
+  const [acc, setAcc] = useState(st.accounts[0]?.id);
+  const amt = +m || 0;
+  const base = useMemo(() => projection(st), [st]);
+  const item = { id: uid(), label: label || 'Dépense prévue', kind: 'out', cat: 'evenement', montant: amt, jour: 15, debut: mois, fin: mois, every: 1 };
+  const withIt = useMemo(() => (amt > 0 ? projection({ ...st, items: [...st.items, item] }) : base), [amt, mois, st]);
+  const cushion = 81000 + budgetTotal(st);
+  const minOf = (rows) => rows.slice(0, 13).reduce((a, r) => (r.dispo < a.dispo ? r : a), rows[0]);
+  const minA = minOf(withIt);
+  const v = !amt ? null : minA.dispo < 0 ? 'no' : minA.dispo < cushion ? 'tight' : 'ok';
+  const at = (rows) => rows.find((r) => r.key === mois) || rows[0];
+  const goals = st.goals.filter(isGoalActive).map((g) => ({ g, a: goalReach(base, g), b: goalReach(withIt, g) }));
+  const cap = Math.max(1, saveCapacity(st));
+  const data = base.slice(0, 13).map((r, i) => ({ label: r.label, long: mLabel(r.key, true), Avant: Math.round(r.dispo), Après: Math.round(withIt[i]?.dispo ?? r.dispo) }));
+  const V = v && VERDICT[v];
+  return (
+    <Modal title="Puis-je me le permettre ?" onClose={onClose}
+      footer={<><button className="btn s" style={{ marginRight: 'auto' }} onClick={onClose}>Fermer</button>
+        <button className="btn s" disabled={!amt || v === 'no'} onClick={() => onEnvelope({ id: uid(), nom: label || 'Enveloppe', montant: amt, mois, accountId: acc })}><Gift size={15} />Créer une enveloppe</button>
+        <button className="btn p" disabled={!amt || v === 'no'} onClick={() => onItem(item)}><CalendarDays size={15} />Prévoir la dépense</button></>}>
+      <div className="form f2">
+        <Field label="Montant (FCFA)"><input className="inp num big" type="number" autoFocus placeholder="ex. 300000" value={m} onChange={(e) => setM(e.target.value)} /></Field>
+        <Field label="Quand ?"><input className="inp" type="month" value={mois} onChange={(e) => e.target.value && setMois(e.target.value)} /></Field>
+        <Field label="Pour quoi ?"><input className="inp" placeholder="ex. Fêtes de fin d'année" value={label} onChange={(e) => setLabel(e.target.value)} /></Field>
+        <Field label="Payé depuis (enveloppe)"><Sel className="inp" value={acc} onChange={(e) => setAcc(e.target.value)}>{st.accounts.map((a) => <option key={a.id} value={a.id}>{a.nom}</option>)}</Sel></Field>
+      </div>
+      <div className="presets">{[[100000, '100 k'], [200000, '200 k'], [300000, '300 k'], [500000, '500 k']].map(([v2, l]) => <button key={v2} className={amt === v2 ? 'on' : ''} onClick={() => setM(String(v2))}>{l}</button>)}</div>
+      {!amt ? <div className="afford-empty"><Calculator size={20} />Entre un montant pour voir l'impact sur tes soldes et tes objectifs.</div> : <>
+        <div className={'verdict ' + V.cls}><span className="vd-ic"><V.I size={20} /></span><div><b>{V.t}</b><span>{v === 'ok' ? `Ton solde ne descend pas sous ${fmt(minA.dispo)} FCFA dans les 12 prochains mois.` : v === 'tight' ? `Point bas à ${fmt(minA.dispo)} FCFA en ${mLabel(minA.key, true)} : moins d'un mois de dépenses en réserve.` : `Ton solde passerait à ${fmt(minA.dispo)} FCFA en ${mLabel(minA.key, true)}.`}</span></div></div>
+        <div className="afford-kpis">
+          <div><span>Fin {mLabel(mois)}</span><b className="num">{fmt(at(withIt).dispo)}</b><em className="num">au lieu de {fmt(at(base).dispo)}</em></div>
+          <div><span>Point bas (12 mois)</span><b className={'num ' + (minA.dispo < 0 ? 'neg' : '')}>{fmt(minA.dispo)}</b><em>{mLabel(minA.key, true)}</em></div>
+          <div><span>Ça représente</span><b className="num">{(amt / cap).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} mois</b><em>d'épargne possible</em></div>
+        </div>
+        <div style={{ height: 150, margin: '4px -6px 0' }}>
+          <ResponsiveContainer><LineChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+            <CartesianGrid vertical={false} stroke={c.grid} /><XAxis dataKey="label" {...axisOf(c)} tick={{ fill: c.axis, fontSize: 11 }} /><YAxis {...axisOf(c)} width={42} tickFormatter={(x) => short(x)} tick={{ fill: c.axis, fontSize: 11 }} />
+            <Tooltip content={<Tip />} /><ReferenceLine y={0} stroke="var(--neg)" strokeDasharray="4 4" />
+            <Line dataKey="Avant" stroke={c.track2} strokeWidth={2} dot={false} /><Line dataKey="Après" stroke={c.primary} strokeWidth={2.5} dot={false} />
+          </LineChart></ResponsiveContainer></div>
+        {goals.length > 0 && <div className="afford-goals">{goals.map(({ g, a, b }) => { const d = a && b ? monthDiff(a.key, b.key) : null; return (
+          <div key={g.id}><i style={{ background: g.couleur }} /><span>{g.nom}</span><b className={!a && !b ? 'muted' : d > 0 || (a && !b) ? 'neg' : 'pos'}>{!a && !b ? 'pas encore planifié' : !b ? 'n’est plus atteint' : d > 0 ? `+${d} mois (${mLabel(b.key)})` : 'pas d’impact'}</b></div>); })}</div>}
+      </>}
+    </Modal>
+  );
+}
+
+function EnvelopeModal({ e, st, onClose, onOk, onDelete }) {
+  const [x, setX] = useState({ id: uid(), nom: '', montant: '', mois: mkey(new Date()), accountId: st.accounts[0]?.id, ...(e || {}), montant: e?.montant ? String(e.montant) : '' });
+  const u = (p) => setX({ ...x, ...p });
+  const ok = x.nom && +x.montant > 0;
+  return (
+    <Modal title={e?.nom ? `Enveloppe · ${e.nom}` : 'Nouvelle enveloppe'} onClose={onClose} onEnter={() => ok && onOk({ ...x, montant: +x.montant })}
+      footer={<>{e && <button className="btn d" style={{ marginRight: 'auto' }} onClick={() => onDelete(e.id)}><Trash2 size={14} />Supprimer</button>}<button className="btn s" onClick={onClose}>Annuler</button><button className="btn p" disabled={!ok} onClick={() => onOk({ ...x, montant: +x.montant })}>Enregistrer</button></>}>
+      <div className="muted" style={{ fontSize: 13, marginBottom: 14 }}>Une enveloppe met de côté une somme pour un événement (fêtes, Tabaski, rentrée…). Ses dépenses ne comptent pas dans tes budgets du mois, et la projection réserve le montant.</div>
+      <div className="presets" style={{ marginBottom: 14 }}>{EVENT_PRESETS.map((p) => <button key={p} className={x.nom === p ? 'on' : ''} onClick={() => u({ nom: p })}>{p}</button>)}</div>
+      <div className="form f2">
+        <Field label="Nom"><input className="inp" autoFocus value={x.nom} onChange={(ev) => u({ nom: ev.target.value })} /></Field>
+        <Field label="Montant (FCFA)"><input className="inp num" type="number" value={x.montant} onChange={(ev) => u({ montant: ev.target.value })} /></Field>
+        <Field label="Mois"><input className="inp" type="month" value={x.mois} onChange={(ev) => ev.target.value && u({ mois: ev.target.value })} /></Field>
+        <Field label="Compte de l'enveloppe" hint="Vire la somme sur ce compte pour la séparer"><Sel className="inp" value={x.accountId} onChange={(ev) => u({ accountId: ev.target.value })}>{st.accounts.map((a) => <option key={a.id} value={a.id}>{a.nom}</option>)}</Sel></Field>
+      </div>
+    </Modal>
+  );
+}
+const EnvelopeCard = ({ e, st, open, compact }) => {
+  const sp = envSpent(st, e.id); const p = +e.montant ? sp / e.montant : 0; const reste = e.montant - sp; const a = st.accounts.find((x) => x.id === e.accountId) || {};
+  return (
+    <div className={'env-card' + (p > 1 ? ' over' : '') + (compact ? ' compact' : '')}>
+      <div className="env-h"><span className="env-ic"><Gift size={16} /></span><div style={{ flex: 1, minWidth: 0 }}><b>{e.nom}</b><span>{mLabel(e.mois, true)} · <i style={{ background: a.couleur }} />{a.nom}</span></div>
+        {!compact && <button className="ib" title="Modifier" onClick={() => open('envelope', e)}><Pencil size={14} /></button>}</div>
+      <div className="env-v"><b className={'num ' + (reste < 0 ? 'neg' : '')}>{reste < 0 ? '−' : ''}{fmt(Math.abs(reste))}</b><span>{reste < 0 ? 'de dépassement' : `restants sur ${fmt(e.montant)}`}</span></div>
+      <div className="env-bar"><i style={{ width: Math.min(100, p * 100) + '%' }} /></div>
+      <button className="btn s sm env-add" onClick={() => open('tx', { kind: 'out', envelopeId: e.id, accountId: e.accountId, cat: 'shopping', label: '' })}><Plus size={13} />Dépense de l'enveloppe</button>
+    </div>);
+};
+
+function SavPlanModal({ st, bal, onClose, onOk }) {
+  const plan = savingsPlan(st, bal);
+  const cap = saveCapacity(st);
+  const [amts, setAmts] = useState(() => Object.fromEntries(plan.map((p) => [p.g.id, String(p.need)])));
+  const [on, setOn] = useState(() => Object.fromEntries(plan.map((p) => [p.g.id, p.need > 0])));
+  const nk = addMonths(mkey(new Date()), 1);
+  const total = plan.filter((p) => on[p.g.id]).reduce((s, p) => s + (+amts[p.g.id] || 0), 0);
+  const pct = cap > 0 ? total / cap : 1;
+  const items = plan.filter((p) => on[p.g.id] && +amts[p.g.id] > 0).map((p) => ({ id: uid(), label: `Épargne ${p.g.nom}`, kind: 'save', cat: 'epargne', goalId: p.g.id, montant: +amts[p.g.id], jour: 6, debut: nk, fin: p.g.echeance, every: 1 }));
+  return (
+    <Modal title="Plan d'épargne" onClose={onClose}
+      footer={<><span className="muted" style={{ fontSize: 12.5, marginRight: 'auto' }}>À partir de {mLabel(nk, true)}, le 6 de chaque mois</span><button className="btn s" onClick={onClose}>Annuler</button><button className="btn p" disabled={!items.length} onClick={() => onOk(items)}><Check size={15} />Programmer {items.length} versement{items.length > 1 ? 's' : ''}</button></>}>
+      <div className={'cap-card ' + (pct > 1 ? 'over' : pct > .85 ? 'tight' : '')}>
+        <div><span>À mettre de côté chaque mois</span><b className="num">{fmt(total)}</b></div>
+        <div><span>Ta capacité moyenne (3 prochains mois)</span><b className="num">{fmt(cap)}</b></div>
+        <div className="cap-bar"><i style={{ width: Math.min(100, pct * 100) + '%' }} /></div>
+        <em>{pct > 1 ? `Il manque ${fmt(total - cap)} par mois : repousse une échéance ou réduis un montant.` : `Il te reste ≈ ${fmt(cap - total)} par mois après ce plan.`}</em>
+      </div>
+      <div className="sp-list">{plan.map((p) => (
+        <div className={'sp-row' + (on[p.g.id] ? '' : ' off')} key={p.g.id}>
+          <input type="checkbox" checked={!!on[p.g.id]} onChange={(e) => setOn({ ...on, [p.g.id]: e.target.checked })} />
+          <Ring pct={(p.v + p.ton) / p.g.montant} color={p.g.couleur} size={40} stroke={5} label="" />
+          <div style={{ flex: 1, minWidth: 0 }}><b>{p.g.nom}</b><span>Reste {fmt(p.reste)} · {p.n} mois jusqu'à {mLabel(p.g.echeance, true)}{p.ton ? ` · cagnotte ${short(p.ton)} incluse` : ''}{p.prog ? ` · déjà ${short(p.prog)}/mois programmés` : ''}</span></div>
+          {p.reste > 0 ? <label className="sp-amt"><input className="inp num" type="number" disabled={!on[p.g.id]} value={amts[p.g.id]} onChange={(e) => setAmts({ ...amts, [p.g.id]: e.target.value })} /><span>/ mois</span></label> : <span className="badge ok"><Check size={11} />Couvert</span>}
+        </div>))}
+        {!plan.length && <div className="empty">Aucun objectif actif.</div>}
+      </div>
+      <div className="muted" style={{ fontSize: 12, marginTop: 10 }}>Les versements déjà programmés pour ces objectifs sont remplacés. L'épargne reste sur tes comptes, réservée dans Kalis.</div>
+    </Modal>
+  );
+}
+
+function CheckUp({ st, bal, set, setSettings, open, setPage, upsert, setToast }) {
+  const list = checkup(st, bal);
+  const score = Math.max(0, 100 - list.reduce((s, x) => s + (x.sev === 3 ? 18 : x.sev === 2 ? 9 : 4), 0));
+  const ignore = (k) => setSettings({ checkupOff: { ...(st.settings.checkupOff || {}), [k]: true } });
+  const reset = () => setSettings({ checkupOff: {} });
+  const nOff = Object.keys(st.settings.checkupOff || {}).length;
+  const run = (x) => {
+    if (x.act === 'prolonger') { upsert('items', { ...x.item, fin: null }); setToast({ msg: `${x.item.label} prolongé sans date de fin`, prev: st }); }
+    else if (x.act === 'recurrent') { upsert('items', { ...x.item, fin: null, every: x.item.cat === 'factures' ? 2 : 1 }); setToast({ msg: `${x.item.label} est maintenant récurrent`, prev: st }); }
+    else if (x.act === 'habits') open('habits');
+    else if (x.act === 'relance') open('relance', x.creance);
+    else if (x.act === 'plan') open('savplan');
+    else if (x.act === 'hyp') { set({ hypothese: 'moyen' }); setToast({ msg: 'Hypothèse « Moyenne » activée', prev: st }); }
+    else if (x.act === 'tri') open('tri');
+    else if (x.act === 'adjust') open('adjust', { accountId: x.account.id });
+    else if (x.act === 'budgets') setPage('budgets');
+    else if (x.act === 'backup') setSettings({ backup: true });
+  };
+  const LBL = { prolonger: 'Prolonger', recurrent: 'Rendre récurrent', habits: 'Ajuster', relance: 'Relancer', plan: 'Planifier', hyp: 'Passer en Moyenne', tri: 'Trier', adjust: 'Corriger', budgets: 'Voir', backup: 'Activer' };
+  const IC = { r: AlertTriangle, o: Clock, p: Sparkles };
+  return (
+    <>
+      <Top title="Check-up" sub="Ce qui mérite ton attention dans tes finances">{nOff > 0 && <button className="btn s" onClick={reset}><EyeOff size={15} />Réafficher {nOff} point{nOff > 1 ? 's' : ''} ignoré{nOff > 1 ? 's' : ''}</button>}</Top>
+      <div className="content">
+        <div className="ck-hero card">
+          <Ring pct={score / 100} color={score >= 80 ? 'var(--pos)' : score >= 55 ? 'var(--warn)' : 'var(--neg)'} size={108} stroke={10} label={`${score}`} />
+          <div><h2>{score >= 80 ? 'Tes finances sont bien tenues' : score >= 55 ? 'Quelques points à régler' : 'Plusieurs points demandent ton attention'}</h2>
+            <p>{list.length ? `${list.length} point${list.length > 1 ? 's' : ''} détecté${list.length > 1 ? 's' : ''}, du plus important au moins important. Chacun se corrige en un clic.` : 'Rien à signaler : flux, budgets, créances et objectifs sont en ordre.'}</p>
+            <div className="ck-legend"><span><i className="r" />Urgent</span><span><i className="o" />À faire</span><span><i className="p" />Conseil</span></div></div>
+        </div>
+        <div className="ck-list">{list.map((x) => { const I = IC[x.tone] || Info; return (
+          <div className={'ck-item ' + x.tone} key={x.key}>
+            <span className="ck-ic"><I size={17} /></span>
+            <div className="ck-t"><b>{x.title}</b><span>{x.text}</span></div>
+            <button className="btn p sm" onClick={() => run(x)}>{LBL[x.act] || 'Voir'}</button>
+            <button className="ib" title="Ignorer" onClick={() => ignore(x.key)}><X size={15} /></button>
+          </div>); })}
+          {!list.length && <div className="card"><div className="ok-state" style={{ padding: 40 }}><ShieldCheck size={22} />Tout est en ordre</div></div>}
+        </div>
+      </div>
+    </>
+  );
+}
+
+function StreakCard({ st, compact }) {
+  const s = streakInfo(st); if (!s) return null;
+  const t = s.today;
+  return (
+    <div className="card rail-card streak">
+      <div className="rc-h"><h3>Série dans le budget</h3><span className="badge" title="Meilleure série">Record {s.best} j</span></div>
+      <div className="stk-main"><span className="stk-fire"><Flame size={22} /></span><div><b className="num">{s.cur}</b><span>jour{s.cur > 1 ? 's' : ''} d'affilée sous {fmt(t?.lim || 0)} FCFA</span></div></div>
+      <div className="stk-days">{s.last.map((d) => <i key={d.d} className={(d.d === t?.d ? 'today ' : '') + (d.ok ? 'ok' : 'ko')} title={`${dLabel(d.d)} : ${fmt(d.v)} / ${fmt(d.lim)}`} />)}</div>
+      {t && <div className={'stk-today' + (t.ok ? '' : ' ko')}>Aujourd'hui : <b className="num">{fmt(t.v)}</b> / {fmt(t.lim)}{t.ok ? ` · encore ${fmt(t.lim - t.v)} possibles` : ' · série cassée aujourd’hui'}</div>}
+    </div>);
+}
+
+function ProIncomeCard({ st, setSettings }) {
+  const c = useC();
+  const target = +st.settings.proTarget || 800000;
+  const [edit, setEdit] = useState(false); const [v, setV] = useState(String(target));
+  const cur = mkey(new Date());
+  const months = Array.from({ length: 6 }, (_, i) => addMonths(cur, i - 5)).filter((k) => k >= (st.dateInitiale || '').slice(0, 7));
+  const srcs = new Set(); const data = months.map((k) => { const inc = proIncome(st, k); Object.keys(inc).forEach((x) => srcs.add(x)); return { label: mLabel(k), long: mLabel(k, true), ...inc, _t: Object.values(inc).reduce((s, x) => s + x, 0) }; });
+  const S = [...srcs]; const COLS = ['#4F46E5', '#0EA5E9', '#10B981', '#F59E0B', '#EC4899'];
+  const now = data[data.length - 1]?._t || 0;
+  const prevFull = data.length > 1 ? data[data.length - 2]._t : 0;
+  const ref = Math.max(now, prevFull);
+  const p = ref / target;
+  return (
+    <div className="card pro-card">
+      <div className="pro-l">
+        <div className="dk-top"><span className="dk-ic"><Briefcase size={15} /></span><span>Objectif carrière · revenus pros</span></div>
+        <div className="pro-v"><b className="num">{fmt(ref)}</b><span>/ {edit ? <input className="inp num" style={{ width: 110, display: 'inline-block', padding: '3px 8px' }} autoFocus value={v} onChange={(e) => setV(e.target.value)} onBlur={() => { setEdit(false); if (+v > 0) setSettings({ proTarget: +v }); }} onKeyDown={(e) => e.key === 'Enter' && e.target.blur()} /> : <button className="link" onClick={() => setEdit(true)} title="Modifier l'objectif">{fmt(target)}</button>} FCFA / mois</span></div>
+        <div className="pro-bar"><i style={{ width: Math.min(100, p * 100) + '%' }} /><em style={{ left: Math.min(100, (547500 / target) * 100) + '%' }} title="Socle Kahpoo + Karmoova dès janvier" /></div>
+        <div className="pro-f">{p >= 1 ? 'Objectif atteint, bravo !' : <>Il manque <b className="num">{fmt(target - ref)}</b> par mois · {Math.round(p * 100)} % de l'objectif</>}</div>
+        <div className="pro-src">{S.map((x, i) => <span key={x}><i style={{ background: COLS[i % COLS.length] }} />{x}</span>)}</div>
+        <div className="muted" style={{ fontSize: 11.5 }}>Revenus « Salaire » et « Missions / freelance » reçus. Renomme « Salaire » en « Kahpoo » dans tes flux pour bien distinguer les sources.</div>
+      </div>
+      <div className="pro-chart">
+        <ResponsiveContainer><BarChart data={data} margin={{ top: 10, right: 6, left: 0, bottom: 0 }}>
+          <CartesianGrid vertical={false} stroke={c.grid} /><XAxis dataKey="label" {...axisOf(c)} /><YAxis {...axisOf(c)} width={44} tickFormatter={(x) => short(x)} domain={[0, (dm) => Math.max(dm, target * 1.05)]} />
+          <Tooltip content={<Tip />} cursor={{ fill: c.grid }} />
+          <ReferenceLine y={target} stroke={c.primary} strokeDasharray="5 4" label={{ value: `Objectif ${short(target)}`, position: 'insideTopRight', fill: c.primary, fontSize: 11 }} />
+          {S.map((x, i) => <Bar key={x} dataKey={x} stackId="a" fill={COLS[i % COLS.length]} radius={i === S.length - 1 ? [6, 6, 0, 0] : 0} maxBarSize={44} />)}
+        </BarChart></ResponsiveContainer>
+      </div>
+    </div>);
 }
